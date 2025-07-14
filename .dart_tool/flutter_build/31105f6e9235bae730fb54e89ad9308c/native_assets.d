@@ -1,0 +1,1 @@
+ K:\\FlutterProjrct\\stroke_rehabilitation\\.dart_tool\\flutter_build\\31105f6e9235bae730fb54e89ad9308c\\native_assets.yaml: 
