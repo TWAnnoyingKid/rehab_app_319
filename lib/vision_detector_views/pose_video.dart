@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:untitled2/vision_detector_views/pose_transform.dart';
+import 'package:rehab_app_319/vision_detector_views/pose_transform.dart';
 import 'package:video_player/video_player.dart';
 import 'pose_view.dart';
 

@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:untitled2/trainmouth/trainmouth_widget.dart';
+import 'package:rehab_app_319/trainmouth/trainmouth_widget.dart';
 import 'package:video_player/video_player.dart';
 import 'face_class.dart';
 

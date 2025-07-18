@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'dart:math';
-import 'package:untitled2/vision_detector_views/body_view/assembly.dart';
+import 'package:rehab_app_319/vision_detector_views/body_view/assembly.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
