@@ -228,78 +228,93 @@ class _BottomNavigationState extends State<BottomNavigation>
     final screenHeight = screenSize.height;
     final isLandscape =
         MediaQuery.of(context).orientation == Orientation.landscape;
+    
+    // 獲取底部安全區域高度，用於 iOS 設備的 Home Indicator
+    final bottomPadding = MediaQuery.of(context).padding.bottom;
 
     return Container(
       width: double.infinity,
-      height: isLandscape ? screenHeight * 0.15 : screenHeight * 0.15,
       color: FlutterFlowTheme.of(context).primaryBtnText,
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-        crossAxisAlignment: CrossAxisAlignment.center,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          _buildBottomNavItem(
-            context,
-            'assets/images/17.jpg',
-            (widget.isSubPage || widget.currentPage == 'home') ? '返回' : '主頁',
-            onTap: widget.isSubPage
-                ? () => Navigator.pop(context) // 子頁面直接返回
-                : widget.currentPage == 'home'
-                    ? () async {
-                        // 主頁顯示退出確認對話框
-                        final bool shouldExit =
-                            await _showExitConfirmDialog(context);
-                        if (shouldExit) {
-                          SystemNavigator.pop();
+          Container(
+            height: isLandscape ? screenHeight * 0.15 : screenHeight * 0.15,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                _buildBottomNavItem(
+                  context,
+                  'assets/images/17.jpg',
+                  (widget.isSubPage || widget.currentPage == 'home') ? '返回' : '主頁',
+                  onTap: widget.isSubPage
+                      ? () => Navigator.pop(context) // 子頁面直接返回
+                      : widget.currentPage == 'home'
+                          ? () async {
+                              // 主頁顯示退出確認對話框
+                              final bool shouldExit =
+                                  await _showExitConfirmDialog(context);
+                              if (shouldExit) {
+                                SystemNavigator.pop();
+                              }
+                            }
+                          : (widget.currentPage != 'home'
+                              ? () => context.pushNamed('home')
+                              : null),
+                ),
+                _buildBottomNavItem(
+                  context,
+                  'assets/images/18.jpg',
+                  '使用紀錄',
+                  onTap: widget.currentPage != 'documental'
+                      ? () => context.pushNamed('documental')
+                      : null,
+                ),
+                _buildNotificationNavItem(
+                  context,
+                  'assets/images/19.jpg',
+                  '新通知',
+                  onTap: widget.currentPage != 'notice'
+                      ? () async {
+                          // 點擊新通知時，先刷新通知狀態，然後標記為已檢查
+                          await _refreshNotifications();
+                          context.read<FFAppState>().markNotificationsAsChecked();
+                          context.pushNamed('notice');
                         }
-                      }
-                    : (widget.currentPage != 'home'
-                        ? () => context.pushNamed('home')
-                        : null),
+                      : null,
+                  onLongPress: widget.currentPage != 'notice'
+                      ? () async {
+                          // 長按通知按鈕可以手動刷新通知狀態
+                          await _refreshNotifications();
+                          // 顯示刷新完成的提示
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('通知狀態已刷新'),
+                                duration: Duration(seconds: 1),
+                                backgroundColor: Colors.green,
+                              ),
+                            );
+                          }
+                        }
+                      : null,
+                ),
+                _buildBottomNavItem(
+                  context,
+                  'assets/images/20.jpg',
+                  '關於',
+                  onTap: widget.currentPage != 'about'
+                      ? () => context.pushNamed('about')
+                      : null,
+                ),
+              ],
+            ),
           ),
-          _buildBottomNavItem(
-            context,
-            'assets/images/18.jpg',
-            '使用紀錄',
-            onTap: widget.currentPage != 'documental'
-                ? () => context.pushNamed('documental')
-                : null,
-          ),
-          _buildNotificationNavItem(
-            context,
-            'assets/images/19.jpg',
-            '新通知',
-            onTap: widget.currentPage != 'notice'
-                ? () async {
-                    // 點擊新通知時，先刷新通知狀態，然後標記為已檢查
-                    await _refreshNotifications();
-                    context.read<FFAppState>().markNotificationsAsChecked();
-                    context.pushNamed('notice');
-                  }
-                : null,
-            onLongPress: widget.currentPage != 'notice'
-                ? () async {
-                    // 長按通知按鈕可以手動刷新通知狀態
-                    await _refreshNotifications();
-                    // 顯示刷新完成的提示
-                    if (mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text('通知狀態已刷新'),
-                          duration: Duration(seconds: 1),
-                          backgroundColor: Colors.green,
-                        ),
-                      );
-                    }
-                  }
-                : null,
-          ),
-          _buildBottomNavItem(
-            context,
-            'assets/images/20.jpg',
-            '關於',
-            onTap: widget.currentPage != 'about'
-                ? () => context.pushNamed('about')
-                : null,
+          // 為 iOS 添加底部安全區域填充
+          Container(
+            height: bottomPadding,
+            color: FlutterFlowTheme.of(context).primaryBtnText,
           ),
         ],
       ),

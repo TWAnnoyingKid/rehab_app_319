@@ -99,6 +99,8 @@ class _KnowledgePageWidgetState extends State<KnowledgePageWidget> {
         key: scaffoldKey,
         backgroundColor: FlutterFlowTheme.of(context).primaryBtnText,
         body: SafeArea(
+          top: true,
+          bottom: false, // 關閉底部安全區域，讓導航欄可以貼合底部
           child: Column(
             mainAxisSize: MainAxisSize.max,
             mainAxisAlignment: MainAxisAlignment.spaceBetween,

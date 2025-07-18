@@ -48,6 +48,8 @@ class _Need2WidgetState extends State<Need2Widget> {
         key: scaffoldKey,
         backgroundColor: FlutterFlowTheme.of(context).primaryBtnText,
         body: SafeArea(
+          top: true,
+          bottom: false, // 關閉底部安全區域，讓導航欄可以貼合底部
           child: Column(
             mainAxisSize: MainAxisSize.max,
             children: [

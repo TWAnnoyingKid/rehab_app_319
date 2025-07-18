@@ -548,6 +548,8 @@ class _NoticeWidgetState extends State<NoticeWidget> {
         key: scaffoldKey,
         backgroundColor: Color(0xFF90BDF9), // 與關於頁面相同的背景色
         body: SafeArea(
+          top: true,
+          bottom: false, // 關閉底部安全區域，讓導航欄可以貼合底部
           child: Column(
             mainAxisSize: MainAxisSize.max,
             mainAxisAlignment: MainAxisAlignment.spaceBetween,

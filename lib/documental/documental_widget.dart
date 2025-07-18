@@ -33,12 +33,16 @@ class _DocumentalWidgetState extends State<DocumentalWidget> {
   String _filterAction = '';
   List<dynamic>? _originalData;
   List<dynamic>? _filteredData;
+  
+  // 新增：用於儲存 Future 的變數，避免重複調用
+  Future<List>? _dataFuture;
+  bool _isInitialized = false;
 
   Future<List> getData() async {
     var url = Uri.parse(ip + "getdata1.php");
     final responce = await http.post(url, body: {
       "account": FFAppState().accountnumber,
-      "action": _model.searchBarController.text,
+      "action": "", // 移除搜尋條件，改為在前端篩選
     });
     final data = jsonDecode(responce.body);
     _originalData = data;
@@ -46,9 +50,26 @@ class _DocumentalWidgetState extends State<DocumentalWidget> {
     // 如果有篩選條件，立即應用篩選
     if (_hasActiveFilters()) {
       _filteredData = _applyFilters(data);
+    } else {
+      _filteredData = null; // 清除篩選結果
     }
 
     return data;
+  }
+
+  // 新增：初始化數據載入
+  void _initializeData() {
+    if (!_isInitialized) {
+      _dataFuture = getData();
+      _isInitialized = true;
+    }
+  }
+
+  // 新增：重新載入數據
+  void _refreshData() {
+    setState(() {
+      _dataFuture = getData();
+    });
   }
 
   // 新增篩選函數
@@ -200,8 +221,10 @@ class _DocumentalWidgetState extends State<DocumentalWidget> {
   void initState() {
     super.initState();
     _model = createModel(context, () => DocumentalModel());
-
     _model.searchBarController ??= TextEditingController();
+    
+    // 初始化數據載入
+    _initializeData();
   }
 
   @override
@@ -550,6 +573,8 @@ class _DocumentalWidgetState extends State<DocumentalWidget> {
         key: scaffoldKey,
         backgroundColor: Color(0xFF90BDF9), // 與關於頁面相同的背景色
         body: SafeArea(
+          top: true,
+          bottom: false, // 關閉底部安全區域，讓導航欄可以貼合底部
           child: Column(
             mainAxisSize: MainAxisSize.max,
             children: [
@@ -621,7 +646,7 @@ class _DocumentalWidgetState extends State<DocumentalWidget> {
               ),
               Expanded(
                 child: FutureBuilder<List>(
-                  future: getData(),
+                  future: _dataFuture, // 使用儲存的 Future，避免重複調用
                   builder: (ctx, ss) {
                     if (ss.connectionState == ConnectionState.waiting) {
                       return Center(child: CircularProgressIndicator());
