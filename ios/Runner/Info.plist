@@ -73,5 +73,16 @@
 		<string>background-fetch</string>
 	</array>
 	
+	<!-- 增加用於權限控制的額外配置 -->
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>此應用程式需要位置資訊來提供個人化的復健服務</string>
+	
+	<!-- 健康資料權限 (如果需要) -->
+	<key>NSHealthShareUsageDescription</key>
+	<string>此應用程式需要讀取健康資料來追蹤復健進度</string>
+	
+	<key>NSHealthUpdateUsageDescription</key>
+	<string>此應用程式需要寫入健康資料來記錄復健活動</string>
+	
 </dict>
 </plist>

@@ -5,6 +5,7 @@ import '/flutter_flow/flutter_flow_theme.dart';
 import '/flutter_flow/flutter_flow_util.dart';
 import '/flutter_flow/flutter_flow_widgets.dart';
 import 'package:easy_debounce/easy_debounce.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:mask_text_input_formatter/mask_text_input_formatter.dart';
@@ -14,6 +15,8 @@ export 'login_model.dart';
 import 'package:http/http.dart' as http;
 import '/main.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:permission_handler/permission_handler.dart';
+import '/ios_permission_debug_widget.dart';
 
 class LoginWidget extends StatefulWidget {
   const LoginWidget({Key? key}) : super(key: key);
@@ -75,6 +78,278 @@ class _LoginWidgetState extends State<LoginWidget> {
     if (Navigator.canPop(context)) {
       Navigator.pop(context);
     }
+  }
+
+  // 檢查並請求所有必要權限
+  Future<void> _checkAndRequestPermissions() async {
+    try {
+      // 先檢查是否有缺少的權限
+      List<Permission> missingPermissions = await _getMissingPermissions();
+      
+      // 如果所有權限都已授予，直接返回
+      if (missingPermissions.isEmpty) {
+        print('所有權限都已授予，跳過權限請求');
+        return;
+      }
+
+      // 只有當有缺少的權限時才顯示權限說明對話框
+      await _showPermissionDialog();
+
+      // 請求缺少的權限
+      await _requestMissingPermissions(missingPermissions);
+    } catch (e) {
+      print('權限檢查錯誤: $e');
+    }
+  }
+
+  // 獲取缺少的權限列表
+  Future<List<Permission>> _getMissingPermissions() async {
+    List<Permission> allPermissions = [
+      Permission.camera,              // 相機權限
+      Permission.microphone,          // 麥克風權限  
+    ];
+
+    List<Permission> missingPermissions = [];
+
+    for (Permission permission in allPermissions) {
+      try {
+        PermissionStatus status = await permission.status;
+        print('檢查權限 ${permission.toString()}: $status');
+        
+        // 如果權限未授予，加入缺少的權限列表
+        if (!status.isGranted) {
+          missingPermissions.add(permission);
+        }
+      } catch (e) {
+        print('檢查權限 ${permission.toString()} 時發生錯誤: $e');
+        // 如果檢查失敗，也當作缺少的權限
+        missingPermissions.add(permission);
+      }
+    }
+
+    print('缺少的權限: ${missingPermissions.map((p) => p.toString()).join(', ')}');
+    return missingPermissions;
+  }
+
+  // 請求缺少的權限
+  Future<void> _requestMissingPermissions(List<Permission> missingPermissions) async {
+    for (Permission permission in missingPermissions) {
+      await _requestSinglePermission(permission);
+    }
+  }
+
+  // 請求單一權限（已確認需要請求）
+  Future<void> _requestSinglePermission(Permission permission) async {
+    try {
+      print('權限需要請求: ${permission.toString()}');
+      
+      // 顯示該權限的重要性說明
+      bool shouldRequest = await _showPermissionExplanation(permission);
+      
+      if (shouldRequest) {
+        print('正在請求權限: ${permission.toString()}');
+        PermissionStatus result = await permission.request();
+        print('權限請求結果: ${result.toString()}');
+        
+        // 如果用戶拒絕了重要權限，給予說明
+        if (result.isPermanentlyDenied) {
+          await _showPermissionDeniedDialog(permission);
+        } else if (result.isGranted) {
+          print('權限已授予: ${permission.toString()}');
+        }
+      } else {
+        print('用戶選擇跳過權限: ${permission.toString()}');
+      }
+    } catch (e) {
+      print('請求權限時發生錯誤 ${permission.toString()}: $e');
+    }
+  }
+
+  // 顯示權限說明對話框
+  Future<void> _showPermissionDialog() async {
+    return showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+          title: Row(
+            children: [
+              Icon(Icons.security, color: Colors.blue, size: 28),
+              SizedBox(width: 8),
+              Text('權限設定', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+            ],
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  '檢測到您尚未授予部分權限。為了提供完整的復健訓練體驗，本應用程式需要以下權限：',
+                  style: TextStyle(fontSize: 16, height: 1.4),
+                ),
+                SizedBox(height: 16),
+                _permissionItem(Icons.camera_alt, '相機', '進行復健動作檢測和姿勢分析'),
+                _permissionItem(Icons.mic, '麥克風', '語音識別和RSST吞嚥測試'),
+                SizedBox(height: 16),
+                Text(
+                  '請在接下來的對話框中允許這些缺少的權限，以確保所有功能正常運作。',
+                  style: TextStyle(fontSize: 14, color: Colors.grey[600], height: 1.3),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text('我知道了', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  // 權限項目小部件
+  Widget _permissionItem(IconData icon, String title, String description) {
+    return Padding(
+      padding: EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: [
+          Icon(icon, color: Colors.blue, size: 20),
+          SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                Text(description, style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // 顯示特定權限的重要性說明
+  Future<bool> _showPermissionExplanation(Permission permission) async {
+    String title = '';
+    String description = '';
+    IconData icon = Icons.help;
+
+    switch (permission) {
+      case Permission.camera:
+        title = '相機權限';
+        description = '需要使用相機來檢測您的復健動作和姿勢，這是復健訓練的核心功能。';
+        icon = Icons.camera_alt;
+        break;
+      case Permission.microphone:
+        title = '麥克風權限';
+        description = '需要使用麥克風進行語音識別和RSST吞嚥功能測試。';
+        icon = Icons.mic;
+        break;
+      default:
+        title = '權限請求';
+        description = '此權限對應用程式功能很重要。';
+        icon = Icons.help;
+        break;
+    }
+
+    return await showDialog<bool>(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+          title: Row(
+            children: [
+              Icon(icon, color: Colors.orange, size: 28),
+              SizedBox(width: 8),
+              Text(title, style: TextStyle(fontSize: 18)),
+            ],
+          ),
+          content: Text(description, style: TextStyle(fontSize: 16, height: 1.4)),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: Text('跳過', style: TextStyle(color: Colors.grey)),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blue,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+              child: Text('允許', style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        );
+      },
+    ) ?? false;
+  }
+
+  // 顯示權限被永久拒絕的對話框
+  Future<void> _showPermissionDeniedDialog(Permission permission) async {
+    String permissionName = '';
+    switch (permission) {
+      case Permission.camera:
+        permissionName = '相機';
+        break;
+      case Permission.microphone:
+        permissionName = '麥克風';
+        break;
+      default:
+        permissionName = permission.toString();
+        break;
+    }
+
+    return showDialog<void>(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+          title: Row(
+            children: [
+              Icon(Icons.warning, color: Colors.orange, size: 28),
+              SizedBox(width: 8),
+              Text('權限設定', style: TextStyle(fontSize: 18)),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                '$permissionName 權限已被拒絕，部分功能可能無法正常使用。',
+                style: TextStyle(fontSize: 16, height: 1.4),
+              ),
+              SizedBox(height: 12),
+              Text(
+                '您可以稍後在「設定 → 隱私權 → $permissionName」中手動開啟權限。',
+                style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text('知道了'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                openAppSettings(); // 開啟應用程式設定
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blue,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+              child: Text('開啟設定', style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   getData() async {
@@ -141,6 +416,9 @@ class _LoginWidgetState extends State<LoginWidget> {
 
           // 檢查未讀訊息
           await FFAppState().checkUnreadNotifications();
+
+          // 檢查並請求必要權限
+          await _checkAndRequestPermissions();
 
           // 導航到主頁面
           context.pushNamed('home');
@@ -804,6 +1082,46 @@ class _LoginWidgetState extends State<LoginWidget> {
                                         ),
                                       ),
                                     ),
+                                    // iOS 權限測試按鈕（臨時調試用）
+                                    if (defaultTargetPlatform == TargetPlatform.iOS)
+                                      Padding(
+                                        padding: EdgeInsetsDirectional.fromSTEB(
+                                            0.0, 10.0, 0.0, 0.0),
+                                        child: FFButtonWidget(
+                                          onPressed: () {
+                                            Navigator.push(
+                                              context,
+                                              MaterialPageRoute(
+                                                builder: (context) => IOSPermissionDebugWidget(),
+                                              ),
+                                            );
+                                          },
+                                          text: 'iOS 權限測試',
+                                          options: FFButtonOptions(
+                                            width: 150.0,
+                                            height: 40.0,
+                                            padding: EdgeInsetsDirectional.fromSTEB(
+                                                0.0, 0.0, 0.0, 0.0),
+                                            iconPadding: EdgeInsetsDirectional.fromSTEB(
+                                                0.0, 0.0, 0.0, 0.0),
+                                            color: Colors.orange,
+                                            textStyle: FlutterFlowTheme.of(context)
+                                                .titleMedium
+                                                .override(
+                                                  fontFamily: 'Poppins',
+                                                  color: Colors.white,
+                                                  fontSize: screenHeight * 0.025,
+                                                  fontWeight: FontWeight.w600,
+                                                ),
+                                            elevation: 2.0,
+                                            borderSide: BorderSide(
+                                              color: Colors.orange.shade700,
+                                              width: 2.0,
+                                            ),
+                                            borderRadius: BorderRadius.circular(8.0),
+                                          ),
+                                        ),
+                                      ),
                                   ],
                                 ),
                               ),
