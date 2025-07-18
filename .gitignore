@@ -1,0 +1,24 @@
+# Build 資料夾
+build/
+
+# Flutter 相關的常見忽略項目
+.dart_tool/
+.packages
+.pub-cache/
+.pub/
+
+# IDE 相關
+.vscode/
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# 系統檔案
+.DS_Store
+Thumbs.db
+
+# 暫存檔案
+*.log
+*.tmp
+*.temp
