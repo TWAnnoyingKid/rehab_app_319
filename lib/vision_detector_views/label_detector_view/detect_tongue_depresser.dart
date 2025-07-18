@@ -17,7 +17,6 @@ import '../../vision_detector_views/label_detector_view/painters/label_detector_
 import '../../vision_detector_views/label_detector_view/roi_processor.dart'; // 引入ROI處理器
 import 'package:audioplayers/audioplayers.dart'; //播放音檔
 import 'package:http/http.dart' as http;
-import 'dart:ui' as ui;
 import 'package:shared_preferences/shared_preferences.dart';
 
 // 繪製ROI框的Painter
@@ -475,21 +474,42 @@ class _ImageLabelViewState extends State<tongue_depresser> {
         // 使用屏幕尺寸調整ROI矩形位置
         final adjustedRoiRect = getAdjustedRoiRect(screenSize);
 
-        // 使用ROI處理器創建ROI的InputImage
-        final roiInputImage = await ROIProcessor.createROIInputImage(
-          _lastCameraImage!,
-          adjustedRoiRect,
-          _cameraDescription!,
-          screenSize: screenSize, // 傳遞螢幕尺寸
-        );
+        InputImage? roiInputImage;
+
+        // 根據平台選擇合適的處理方法
+        if (io.Platform.isIOS) {
+          print('使用 iOS 特定的 ROI 處理方法');
+          // 使用 iOS 特定的 ROI 處理器
+          roiInputImage = await ROIProcessor.createROIInputImageForIOS(
+            _lastCameraImage!,
+            adjustedRoiRect,
+            _cameraDescription!,
+            screenSize: screenSize,
+          );
+        } else {
+          print('使用通用的 ROI 處理方法');
+          // 使用通用的 ROI 處理器
+          roiInputImage = await ROIProcessor.createROIInputImage(
+            _lastCameraImage!,
+            adjustedRoiRect,
+            _cameraDescription!,
+            screenSize: screenSize,
+          );
+        }
 
         // 如果成功處理ROI，使用第二個模型處理ROI圖像
         if (roiInputImage != null) {
-          return await _secondImageLabeler.processImage(roiInputImage);
+          final result = await _secondImageLabeler.processImage(roiInputImage);
+          print('ROI 模型檢測結果: ${result.map((e) => '${e.label}(${e.confidence.toStringAsFixed(2)})').join(', ')}');
+          return result;
+        } else {
+          print('ROI 處理失敗，返回空結果');
+          return [];
         }
       }
 
       // 如果無法處理ROI，回退到處理整個圖像
+      print('回退到處理整個圖像');
       return await _secondImageLabeler.processImage(inputImage);
     } catch (e) {
       print('處理ROI時出錯: $e');
@@ -534,6 +554,11 @@ class Detector_tongue_depresser {
   DateTime? lastDetectTime1; // 第一個模型的時間戳
   DateTime? lastDetectTime2; // 第二個模型的時間戳
   int stateHoldDuration = 500; // 狀態維持時間，單位毫秒
+  
+  // 添加第二個模型 'non' 檢測的延遲重置機制
+  DateTime? firstNonDetectionTime; // 首次檢測到 'non' 的時間
+  int nonDetectionDelay = 3000; // 'non' 檢測延遲時間，3秒（毫秒）
+  bool shouldResetCounter = false; // 是否應該重置計時器
 
   String TargetRemind = '請抿嘴壓筆\n將筆移到綠框內'; //目標提醒
   String TimerText = ''; //倒數文字
@@ -601,21 +626,40 @@ class Detector_tongue_depresser {
     return DetectResult;
   }
 
-  // 取得第二個模型的穩定結果
+  // 取得第二個模型的穩定結果（考慮延遲重置機制）
   String getStableSecondModelResult() {
-    // 如果當前結果不是排除的特徵，直接返回
+    final currentTime = DateTime.now();
+    
+    // 如果當前結果不是排除的特徵
     if (SecondModelResult != SecondTargetExclusion) {
       lastSecondModelResult = SecondModelResult;
-      lastDetectTime2 = DateTime.now(); // 使用獨立的時間戳
+      lastDetectTime2 = currentTime;
+      // 重置 'non' 檢測相關狀態
+      firstNonDetectionTime = null;
+      shouldResetCounter = false;
       return SecondModelResult;
+    }
+
+    // 如果當前檢測到 'non'
+    if (SecondModelResult == SecondTargetExclusion) {
+      // 如果這是第一次檢測到 'non'，記錄時間
+      if (firstNonDetectionTime == null) {
+        firstNonDetectionTime = currentTime;
+        print("第二個模型首次檢測到 'non'，開始 3 秒延遲計時");
+      } else {
+        // 檢查是否已經超過延遲時間
+        final timeSinceFirstNon = currentTime.difference(firstNonDetectionTime!).inMilliseconds;
+        if (timeSinceFirstNon >= nonDetectionDelay) {
+          shouldResetCounter = true;
+          print("第二個模型 'non' 檢測延遲時間已到，標記需要重置計時器");
+        }
+      }
     }
 
     // 如果之前檢測到有效特徵，且在維持時間內，繼續返回該特徵
     if (lastSecondModelResult != SecondTargetExclusion &&
         lastDetectTime2 != null) {
-      final currentTime = DateTime.now();
-      final difference =
-          currentTime.difference(lastDetectTime2!).inMilliseconds;
+      final difference = currentTime.difference(lastDetectTime2!).inMilliseconds;
 
       if (difference < stateHoldDuration) {
         print("第二個模型狀態維持中: ${lastSecondModelResult}");
@@ -625,7 +669,7 @@ class Detector_tongue_depresser {
 
     // 否則返回當前實際檢測到的結果
     lastSecondModelResult = SecondModelResult;
-    lastDetectTime2 = DateTime.now();
+    lastDetectTime2 = currentTime;
     return SecondModelResult;
   }
 
@@ -637,7 +681,7 @@ class Detector_tongue_depresser {
 
     if (this.StartedDetector) {
       DetectorED = true;
-      this.TargetRemind = "請抿嘴壓筆\n將筆移到綠框內";
+      this.TargetRemind = "請抿嘴壓筆到綠框內";
 
       // 打印當前的偵測結果，用於調試
       print("raw - 第一個模型: ${DetectResult}, 第二個模型: ${SecondModelResult}");
@@ -669,16 +713,31 @@ class Detector_tongue_depresser {
         print("計時器: ${this.FaceTimeCounter}");
         this.TargetRemind = "請保持住!";
       } else {
-        //沒有保持
-        this.FaceTimeCounter = 0;
+        // 檢查是否需要重置計時器（基於延遲機制）
+        if (shouldResetCounter || stableDetectResult != TargetText) {
+          // 重置計時器
+          this.FaceTimeCounter = 0;
+          
+          // 重置延遲標記
+          if (shouldResetCounter) {
+            shouldResetCounter = false;
+            firstNonDetectionTime = null;
+            print("延遲重置: 計時器歸零（3秒後）");
+          }
+        }
 
         // 打印不滿足條件的原因
         if (stableDetectResult != TargetText) {
           print("不滿足條件: 第一個模型 ${stableDetectResult} != ${TargetText}");
         }
         if (stableSecondModelResult == SecondTargetExclusion) {
-          print(
-              "不滿足條件: 第二個模型檢測到排除特徵 ${stableSecondModelResult} == ${SecondTargetExclusion}");
+          if (firstNonDetectionTime != null && !shouldResetCounter) {
+            final elapsed = DateTime.now().difference(firstNonDetectionTime!).inMilliseconds;
+            final remaining = (nonDetectionDelay - elapsed) / 1000;
+            print("檢測到 'non'，延遲重置中... 剩餘 ${remaining.toStringAsFixed(1)} 秒");
+          } else {
+            print("不滿足條件: 第二個模型檢測到排除特徵 ${stableSecondModelResult} == ${SecondTargetExclusion}");
+          }
         }
       }
     } else if (DetectorED) {
@@ -687,6 +746,10 @@ class Detector_tongue_depresser {
           stableSecondModelResult == SecondTargetExclusion) {
         //確認復歸
         this.StartedDetector = true;
+        
+        // 重置延遲機制相關狀態
+        firstNonDetectionTime = null;
+        shouldResetCounter = false;
       } else {
         this.TargetRemind = "請放鬆";
       }
@@ -736,7 +799,6 @@ class Detector_tongue_depresser {
     });
   }
 
-  @override
   Future<void> sounder(int counter) async {
     await _loadLanguagePreference(); // 確保獲取最新設定
     String audioPath = '${getAudioPath()}/${counter}.${getAudioDataForm()}';

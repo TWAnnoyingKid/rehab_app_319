@@ -1,6 +1,6 @@
 import 'dart:io' as io;
 import 'dart:typed_data';
-import 'dart:ui' as ui;
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart';
@@ -53,23 +53,28 @@ img.Image? _convertBGRA8888ToRGBIsolate(_ImageConversionParams params) {
     final bytesPerRow = params.bytesPerRow[0];
 
     print('BGRA8888平面資訊: bytesPerRow=$bytesPerRow, buffer長度=${buffer.length}');
+    print('計算的理論行寬: ${params.width * 4}, 實際行寬: $bytesPerRow');
 
     // 創建RGB圖像
     final image = img.Image(width: params.width, height: params.height);
 
     // BGRA8888格式：每個像素4個字節，順序為B-G-R-A
+    // 注意：iOS的bytesPerRow可能包含填充字節，不一定等於width*4
     for (int row = 0; row < params.height; row++) {
       for (int col = 0; col < params.width; col++) {
-        final int pixelIndex = (row * bytesPerRow + col * 4);
+        // 使用bytesPerRow來計算每行的起始位置，避免填充字節問題
+        final int rowStartIndex = row * bytesPerRow;
+        final int pixelIndex = rowStartIndex + (col * 4);
 
         if (pixelIndex + 3 < buffer.length) {
           final int b = buffer[pixelIndex] & 0xFF; // Blue
           final int g = buffer[pixelIndex + 1] & 0xFF; // Green
           final int r = buffer[pixelIndex + 2] & 0xFF; // Red
-          final int a = buffer[pixelIndex + 3] & 0xFF; // Alpha
+          // Alpha 通道通常不使用: buffer[pixelIndex + 3]
 
           image.setPixelRgb(col, row, r, g, b);
         } else {
+          print('像素索引超出範圍: row=$row, col=$col, pixelIndex=$pixelIndex, bufferLength=${buffer.length}');
           image.setPixelRgb(col, row, 0, 0, 0);
         }
       }
@@ -502,9 +507,6 @@ class ROIProcessor {
     try {
       if (cameraImage.planes.isEmpty) return null;
 
-      final width = cameraImage.width;
-      final height = cameraImage.height;
-
       // 檢查相機圖像格式並使用非同步處理
       if (cameraImage.format.group == ImageFormatGroup.yuv420) {
         print('使用YUV420彩色轉換（非同步）');
@@ -571,29 +573,32 @@ class ROIProcessor {
       final buffer = plane.bytes;
       final bytesPerRow = plane.bytesPerRow;
 
-      print(
-          'BGRA8888平面資訊: bytesPerRow=$bytesPerRow, buffer長度=${buffer.length}');
+      print('BGRA8888平面資訊: bytesPerRow=$bytesPerRow, buffer長度=${buffer.length}');
+      print('計算的理論行寬: ${width * 4}, 實際行寬: $bytesPerRow');
 
       // 創建RGB圖像
       final image = img.Image(width: width, height: height);
 
       // BGRA8888格式：每個像素4個字節，順序為B-G-R-A
+      // 注意：iOS的bytesPerRow可能包含填充字節
       for (int row = 0; row < height; row++) {
         for (int col = 0; col < width; col++) {
-          // 計算像素在buffer中的索引 (每個像素4個字節)
-          final int pixelIndex = (row * bytesPerRow + col * 4);
+          // 使用bytesPerRow來計算每行的起始位置，避免填充字節問題
+          final int rowStartIndex = row * bytesPerRow;
+          final int pixelIndex = rowStartIndex + (col * 4);
 
           if (pixelIndex + 3 < buffer.length) {
             // BGRA順序讀取
             final int b = buffer[pixelIndex] & 0xFF; // Blue
             final int g = buffer[pixelIndex + 1] & 0xFF; // Green
             final int r = buffer[pixelIndex + 2] & 0xFF; // Red
-            final int a = buffer[pixelIndex + 3] & 0xFF; // Alpha (通常不使用)
+            // Alpha 通道通常不使用: buffer[pixelIndex + 3]
 
             // 設置RGB像素值
             image.setPixelRgb(col, row, r, g, b);
           } else {
             // 如果索引超出範圍，設置為黑色
+            print('像素索引超出範圍: row=$row, col=$col, pixelIndex=$pixelIndex, bufferLength=${buffer.length}');
             image.setPixelRgb(col, row, 0, 0, 0);
           }
         }
@@ -764,6 +769,159 @@ class ROIProcessor {
       return image;
     } catch (e) {
       print('灰度轉換失敗: $e');
+      return null;
+    }
+  }
+
+  // iOS 特定的 ROI 處理增強方法
+  static Future<InputImage?> createROIInputImageForIOS(
+      CameraImage cameraImage, Rect roi, CameraDescription camera,
+      {Size? screenSize}) async {
+    try {
+      print('=== iOS ROI 處理開始 ===');
+      print('相機圖像格式: ${cameraImage.format.group}');
+      print('相機圖像尺寸: ${cameraImage.width}x${cameraImage.height}');
+      print('平面數量: ${cameraImage.planes.length}');
+      
+      if (cameraImage.planes.isNotEmpty) {
+        final plane = cameraImage.planes[0];
+        print('第一個平面資訊:');
+        print('  - bytesPerRow: ${plane.bytesPerRow}');
+        print('  - bytesPerPixel: ${plane.bytesPerPixel}');
+        print('  - buffer長度: ${plane.bytes.length}');
+        print('  - 理論buffer長度: ${cameraImage.width * cameraImage.height * 4}');
+      }
+
+      // 轉換為標準圖像格式
+      final imgLib = await _convertCamToImage(cameraImage);
+      if (imgLib == null) {
+        print('iOS ROI 處理失敗: 圖像轉換返回 null');
+        return null;
+      }
+
+      print('轉換後圖像尺寸: ${imgLib.width}x${imgLib.height}');
+
+      // 使用傳入的螢幕尺寸或預設值
+      final actualScreenWidth = screenSize?.width ?? 400.0;
+      final actualScreenHeight = screenSize?.height ?? 800.0;
+
+      print('螢幕尺寸: ${actualScreenWidth.toInt()}x${actualScreenHeight.toInt()}');
+      print('ROI框尺寸 (UI坐標): ${roi.width}x${roi.height}');
+      print('ROI框位置 (UI坐標): (${roi.left}, ${roi.top})');
+
+      img.Image originalImage = imgLib;
+
+      // 根據相機旋轉調整圖像
+      final rotation =
+          InputImageRotationValue.fromRawValue(camera.sensorOrientation);
+      print('相機感測器方向: ${camera.sensorOrientation}度');
+      img.Image rotatedImage = originalImage;
+
+      if (rotation == InputImageRotation.rotation90deg) {
+        rotatedImage = img.copyRotate(originalImage, angle: 90);
+        print('圖像旋轉90度');
+      } else if (rotation == InputImageRotation.rotation180deg) {
+        rotatedImage = img.copyRotate(originalImage, angle: 180);
+        print('圖像旋轉180度');
+      } else if (rotation == InputImageRotation.rotation270deg) {
+        rotatedImage = img.copyRotate(originalImage, angle: 270);
+        print('圖像旋轉270度');
+      }
+
+      // 根據鏡頭方向進行水平翻轉
+      if (camera.lensDirection == CameraLensDirection.front) {
+        rotatedImage = img.flipHorizontal(rotatedImage);
+        print('前置相機，進行水平翻轉');
+      }
+
+      print('旋轉翻轉後圖像尺寸: ${rotatedImage.width}x${rotatedImage.height}');
+
+      // iOS 特定的縮放計算 - 使用更保守的方法
+      double scaleX = rotatedImage.width / actualScreenWidth;
+      double scaleY = rotatedImage.height / actualScreenHeight;
+      
+      // 對於 iOS，使用最小縮放比例以確保 ROI 不會超出圖像邊界
+      double uniformScale = math.min(scaleX, scaleY);
+      
+      print('iOS 縮放比例: scaleX=$scaleX, scaleY=$scaleY');
+      print('iOS 使用最小縮放比例: $uniformScale');
+
+      // 使用更保守的 ROI 定位
+      final int roiX = (roi.left * uniformScale).toInt().clamp(0, rotatedImage.width - 10);
+      final int roiY = (roi.top * uniformScale).toInt().clamp(0, rotatedImage.height - 10);
+      final int roiWidth = (roi.width * uniformScale).toInt().clamp(10, rotatedImage.width - roiX);
+      final int roiHeight = (roi.height * uniformScale).toInt().clamp(10, rotatedImage.height - roiY);
+
+      print('iOS ROI 最終座標: x=$roiX, y=$roiY, width=$roiWidth, height=$roiHeight');
+      print('圖像邊界檢查: 圖像=${rotatedImage.width}x${rotatedImage.height}, ROI右下角=(${roiX + roiWidth}, ${roiY + roiHeight})');
+
+      // 安全性檢查
+      if (roiX + roiWidth > rotatedImage.width || roiY + roiHeight > rotatedImage.height) {
+        print('iOS ROI 警告: ROI 超出圖像邊界');
+        // 重新調整 ROI 尺寸
+        final adjustedWidth = (rotatedImage.width - roiX - 5).clamp(10, roiWidth);
+        final adjustedHeight = (rotatedImage.height - roiY - 5).clamp(10, roiHeight);
+        print('調整後的 ROI 尺寸: ${adjustedWidth}x${adjustedHeight}');
+        
+        // 裁剪ROI
+        final croppedImage = img.copyCrop(
+          rotatedImage,
+          x: roiX,
+          y: roiY,
+          width: adjustedWidth,
+          height: adjustedHeight,
+        );
+        
+        print('iOS ROI 裁剪成功: ${croppedImage.width}x${croppedImage.height}');
+        
+        // 調整為224x224尺寸
+        final resizedImage = img.copyResize(
+          croppedImage,
+          width: 224,
+          height: 224,
+          interpolation: img.Interpolation.linear,
+        );
+
+        // 保存為臨時文件
+        final tempDir = await getTemporaryDirectory();
+        final tempFile = io.File(
+            '${tempDir.path}/ios_roi_${DateTime.now().millisecondsSinceEpoch}.jpg');
+        await tempFile.writeAsBytes(img.encodeJpg(resizedImage));
+
+        print('iOS ROI 圖像已保存: ${tempFile.path}');
+        return InputImage.fromFilePath(tempFile.path);
+      } else {
+        // 裁剪ROI
+        final croppedImage = img.copyCrop(
+          rotatedImage,
+          x: roiX,
+          y: roiY,
+          width: roiWidth,
+          height: roiHeight,
+        );
+
+        print('iOS ROI 裁剪成功: ${croppedImage.width}x${croppedImage.height}');
+
+        // 調整為224x224尺寸
+        final resizedImage = img.copyResize(
+          croppedImage,
+          width: 224,
+          height: 224,
+          interpolation: img.Interpolation.linear,
+        );
+
+        // 保存為臨時文件
+        final tempDir = await getTemporaryDirectory();
+        final tempFile = io.File(
+            '${tempDir.path}/ios_roi_${DateTime.now().millisecondsSinceEpoch}.jpg');
+        await tempFile.writeAsBytes(img.encodeJpg(resizedImage));
+
+        print('iOS ROI 圖像已保存: ${tempFile.path}');
+        return InputImage.fromFilePath(tempFile.path);
+      }
+    } catch (e, stackTrace) {
+      print('iOS ROI 處理失敗: $e');
+      print('堆疊追蹤: $stackTrace');
       return null;
     }
   }
