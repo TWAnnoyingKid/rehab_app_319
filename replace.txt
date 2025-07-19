@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:noise_meter/noise_meter.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -8,7 +7,9 @@ import '../../main.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter/services.dart';
 import '../../flutter_flow/flutter_flow_util.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:intl/intl.dart';
+import 'dart:io'; // 添加這個 import 來檢測平台
 
 /// **第一個畫面：讓使用者選擇 PA、TA、KA**
 class speech extends StatefulWidget {
@@ -476,16 +477,9 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
   double _soundLevel = 0.0;
   int _wordCount = 0;
   bool _hasAddedWord = false;
-  double _dBThreshold = 80.0;
 
-  // iOS 音量平滑處理相關變數
-  double _smoothedSoundLevel = 0.0;
-  Timer? _volumeDecayTimer;
-  Timer? _cooldownTimer;
-  bool _isInCooldown = false;
-  static const double _decayRate = 0.85; // 音量衰減速率 (iOS 專用)
-  static const int _decayInterval = 50; // 衰減間隔 (毫秒)
-  static const int _cooldownDuration = 200; // 冷卻期持續時間 (毫秒)
+  // 平台特定的音量閾值
+  double _dBThreshold = Platform.isIOS ? 75.0 : 80.0; // iOS 通常需要較低的閾值
 
   // 動畫控制
   late AnimationController _animationController;
@@ -498,6 +492,7 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
   @override
   void initState() {
     super.initState();
+    _initializePlatformSpecificSettings(); // 添加平台特定初始化
     _requestPermissions();
 
     /// 請求麥克風權限
@@ -515,10 +510,26 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
     ///開始後大小
   }
 
+  // 添加平台特定設置初始化
+  void _initializePlatformSpecificSettings() {
+    if (Platform.isIOS) {
+      print('iOS 平台：使用優化的音量閾值設定');
+      // iOS 可能需要更精確的調整
+    } else {
+      print('Android 平台：使用標準音量閾值設定');
+    }
+  }
+
   Future<void> _requestPermissions() async {
     var status = await Permission.microphone.status;
     if (!status.isGranted) {
       await Permission.microphone.request();
+    }
+
+    // iOS 特殊處理：確保權限狀態穩定
+    if (Platform.isIOS && status.isGranted) {
+      await Future.delayed(const Duration(milliseconds: 300));
+      print('iOS 權限確認完成');
     }
   }
 
@@ -531,95 +542,37 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
     try {
       // 開始監聽音量
       _noiseSubscription = _noiseMeter!.noiseStream.listen((noiseEvent) {
-        final rawSoundLevel = noiseEvent.meanDecibel;
-        
-        // iOS 特殊處理：使用平滑音量並啟動衰減計時器
-        if (Platform.isIOS) {
-          _handleiOSVolumeProcessing(rawSoundLevel);
-        } else {
-          // Android 使用原始音量
-          _handleVolumeDetection(rawSoundLevel);
-        }
+        setState(() {
+          _soundLevel = noiseEvent.meanDecibel; //更新音量數據
+
+          if (_soundLevel > _dBThreshold) {
+            if (!_hasAddedWord) {
+              _wordCount++;
+              _hasAddedWord = true;
+              print(
+                  '${Platform.isIOS ? "iOS" : "Android"} 偵測到音節，當前音量: $_soundLevel dB');
+            }
+            _animationController.forward(); // 氣泡放大
+          } else {
+            _hasAddedWord = false;
+            _animationController.reverse(); // 氣泡縮小
+          }
+        });
       }, onError: (e) {
-        debugPrint('噪音偵測錯誤：$e');
+        debugPrint('噪音偵測錯誤 (${Platform.isIOS ? "iOS" : "Android"}): $e');
         _stopListening();
       });
 
       // 開始倒數計時
       _startCountdown();
     } catch (e) {
-      debugPrint('啟動偵測時發生錯誤：$e');
+      debugPrint('啟動偵測時發生錯誤 (${Platform.isIOS ? "iOS" : "Android"}): $e');
       _stopListening();
     }
 
     setState(() => _isListening = true);
-  }
-
-  // iOS 開始音量衰減計時器（只在音量超過門檻時啟動）
-  void _startVolumeDecayTimer() {
-    // 如果已有計時器在運行，先取消
-    _volumeDecayTimer?.cancel();
-    
-    _volumeDecayTimer = Timer.periodic(Duration(milliseconds: _decayInterval), (timer) {
-      if (_smoothedSoundLevel > 10.0) {
-        _smoothedSoundLevel *= _decayRate; // 音量逐漸衰減
-        _handleVolumeDetection(_smoothedSoundLevel);
-      } else {
-        // 音量衰減到很低時，停止計時器並啟動冷卻期
-        _smoothedSoundLevel = 0.0;
-        _handleVolumeDetection(_smoothedSoundLevel);
-        timer.cancel();
-        _startCooldownPeriod();
-      }
-    });
-  }
-
-  // 啟動冷卻期，避免衰減後立即重新觸發
-  void _startCooldownPeriod() {
-    _isInCooldown = true;
-    _cooldownTimer?.cancel();
-    _cooldownTimer = Timer(Duration(milliseconds: _cooldownDuration), () {
-      _isInCooldown = false;
-    });
-  }
-
-  // iOS 音量處理：只在超過門檻時才啟動衰減
-  void _handleiOSVolumeProcessing(double rawSoundLevel) {
-    // 如果在冷卻期內，忽略所有音量更新
-    if (_isInCooldown) {
-      return;
-    }
-    
-    // 如果檢測到新的音量峰值，更新平滑音量
-    if (rawSoundLevel > _smoothedSoundLevel) {
-      _smoothedSoundLevel = rawSoundLevel;
-      
-      // 只有當音量超過門檻值時，才啟動衰減計時器
-      if (rawSoundLevel > _dBThreshold) {
-        _startVolumeDecayTimer();
-      }
-    }
-    
-    // 使用平滑音量進行偵測
-    _handleVolumeDetection(_smoothedSoundLevel);
-  }
-
-  // 統一的音量偵測處理
-  void _handleVolumeDetection(double currentSoundLevel) {
-    setState(() {
-      _soundLevel = currentSoundLevel; // 更新顯示的音量數據
-
-      if (_soundLevel > _dBThreshold) {
-        if (!_hasAddedWord) {
-          _wordCount++;
-          _hasAddedWord = true;
-        }
-        _animationController.forward(); // 氣泡放大
-      } else {
-        _hasAddedWord = false;
-        _animationController.reverse(); // 氣泡縮小
-      }
-    });
+    print(
+        '開始音量偵測 - 平台: ${Platform.isIOS ? "iOS" : "Android"}, 閾值: $_dBThreshold dB');
   }
 
   void _stopListening() {
@@ -627,8 +580,6 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
     _noiseSubscription = null;
     _noiseMeter = null;
     _countdownTimer?.cancel(); // 停止倒數
-    _volumeDecayTimer?.cancel(); // 停止 iOS 音量衰減計時器
-    _cooldownTimer?.cancel(); // 停止冷卻期計時器
     setState(() {
       _isListening = false;
       _animationController.reverse(); // 測試停止時，氣泡恢復原狀
@@ -641,11 +592,7 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
       _soundLevel = 0.0;
       _hasAddedWord = false;
       _remainingTime = 10; // 重置倒數
-      _smoothedSoundLevel = 0.0; // 重置 iOS 平滑音量
-      _isInCooldown = false; // 重置冷卻期狀態
     });
-    _volumeDecayTimer?.cancel(); // 取消任何正在運行的衰減計時器
-    _cooldownTimer?.cancel(); // 取消任何正在運行的冷卻期計時器
   }
 
   // **開始倒數計時**
@@ -929,9 +876,9 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text(
-                  "偵測靈敏度",
-                  style: TextStyle(
+                Text(
+                  "偵測靈敏度 (${Platform.isIOS ? 'iOS' : 'Android'})",
+                  style: const TextStyle(
                       fontSize: 15,
                       fontWeight: FontWeight.w500,
                       color: Colors.black87),
@@ -944,14 +891,26 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
             ),
           ),
           const SizedBox(height: 4),
-          // 顯示當前即時音量
-          Text(
-            '當前音量: ${_soundLevel.toStringAsFixed(1)} dB',
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: _soundLevel > _dBThreshold ? FontWeight.bold : FontWeight.normal,
-              color: _soundLevel > _dBThreshold ? Colors.green : Colors.black87,
-            ),
+          // 顯示當前即時音量和平台資訊
+          Column(
+            children: [
+              Text(
+                '當前音量: ${_soundLevel.toStringAsFixed(1)} dB',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: _soundLevel > _dBThreshold
+                      ? FontWeight.bold
+                      : FontWeight.normal,
+                  color: _soundLevel > _dBThreshold
+                      ? Colors.green
+                      : Colors.black87,
+                ),
+              ),
+              Text(
+                '平台建議範圍: ${Platform.isIOS ? "50-90" : "60-100"} dB',
+                style: TextStyle(fontSize: 12, color: Colors.grey[500]),
+              ),
+            ],
           ),
           const SizedBox(height: 4),
           SliderTheme(
@@ -966,10 +925,11 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
               overlayShape: const RoundSliderOverlayShape(overlayRadius: 28.0),
             ),
             child: Slider(
-              value: _dBThreshold,
-              min: 60,
-              max: 100,
-              divisions: 40, // 將範圍切成 40 份
+              value: _dBThreshold.clamp(
+                  Platform.isIOS ? 50.0 : 60.0, Platform.isIOS ? 90.0 : 100.0),
+              min: Platform.isIOS ? 50.0 : 60.0,
+              max: Platform.isIOS ? 90.0 : 100.0,
+              divisions: Platform.isIOS ? 20 : 20, // 每2dB一個刻度
               label: _dBThreshold.toStringAsFixed(0),
               onChanged: _isListening
                   ? null // 測試進行中不可調整
@@ -977,6 +937,8 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
                       setState(() {
                         ///更新 _dBThreshold 的數值
                         _dBThreshold = value;
+                        print(
+                            '調整音量閾值: $_dBThreshold dB (${Platform.isIOS ? "iOS" : "Android"})');
                       });
                     },
             ),
@@ -992,8 +954,6 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
     _noiseSubscription?.cancel();
     _animationController.dispose();
     _countdownTimer?.cancel();
-    _volumeDecayTimer?.cancel(); // 清理 iOS 音量衰減計時器
-    _cooldownTimer?.cancel(); // 清理冷卻期計時器
     super.dispose();
   }
 }
