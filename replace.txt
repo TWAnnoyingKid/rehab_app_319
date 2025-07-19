@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:noise_meter/noise_meter.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -477,6 +478,12 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
   bool _hasAddedWord = false;
   double _dBThreshold = 80.0;
 
+  // iOS 音量平滑處理相關變數
+  double _smoothedSoundLevel = 0.0;
+  Timer? _volumeDecayTimer;
+  static const double _decayRate = 0.85; // 音量衰減速率 (iOS 專用)
+  static const int _decayInterval = 50; // 衰減間隔 (毫秒)
+
   // 動畫控制
   late AnimationController _animationController;
   late Animation<double> _scaleAnimation;
@@ -521,21 +528,15 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
     try {
       // 開始監聽音量
       _noiseSubscription = _noiseMeter!.noiseStream.listen((noiseEvent) {
-        setState(() {
-          // 改為使用 maxDecibel 來獲得更靈敏的峰值，解決 iOS 上音量下降慢的問題
-          _soundLevel = noiseEvent.maxDecibel; //更新音量數據
-
-          if (_soundLevel > _dBThreshold) {
-            if (!_hasAddedWord) {
-              _wordCount++;
-              _hasAddedWord = true;
-            }
-            _animationController.forward(); // 氣泡放大
-          } else {
-            _hasAddedWord = false;
-            _animationController.reverse(); // 氣泡縮小
-          }
-        });
+        final rawSoundLevel = noiseEvent.meanDecibel;
+        
+        // iOS 特殊處理：使用平滑音量並啟動衰減計時器
+        if (Platform.isIOS) {
+          _handleiOSVolumeProcessing(rawSoundLevel);
+        } else {
+          // Android 使用原始音量
+          _handleVolumeDetection(rawSoundLevel);
+        }
       }, onError: (e) {
         debugPrint('噪音偵測錯誤：$e');
         _stopListening();
@@ -551,11 +552,60 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
     setState(() => _isListening = true);
   }
 
+  // iOS 音量處理：加入衰減機制
+  void _handleiOSVolumeProcessing(double rawSoundLevel) {
+    // 如果檢測到新的音量峰值，更新平滑音量
+    if (rawSoundLevel > _smoothedSoundLevel) {
+      _smoothedSoundLevel = rawSoundLevel;
+    }
+    
+    // 重新啟動衰減計時器
+    _volumeDecayTimer?.cancel();
+    _volumeDecayTimer = Timer.periodic(Duration(milliseconds: _decayInterval), (timer) {
+      if (_smoothedSoundLevel > 0) {
+        _smoothedSoundLevel *= _decayRate; // 音量逐漸衰減
+        
+        // 當音量衰減到很低時停止計時器
+        if (_smoothedSoundLevel < 10.0) {
+          _smoothedSoundLevel = 0.0;
+          timer.cancel();
+        }
+        
+        // 使用平滑後的音量進行偵測
+        _handleVolumeDetection(_smoothedSoundLevel);
+      } else {
+        timer.cancel();
+      }
+    });
+    
+    // 立即使用當前音量進行偵測
+    _handleVolumeDetection(_smoothedSoundLevel);
+  }
+
+  // 統一的音量偵測處理
+  void _handleVolumeDetection(double currentSoundLevel) {
+    setState(() {
+      _soundLevel = currentSoundLevel; // 更新顯示的音量數據
+
+      if (_soundLevel > _dBThreshold) {
+        if (!_hasAddedWord) {
+          _wordCount++;
+          _hasAddedWord = true;
+        }
+        _animationController.forward(); // 氣泡放大
+      } else {
+        _hasAddedWord = false;
+        _animationController.reverse(); // 氣泡縮小
+      }
+    });
+  }
+
   void _stopListening() {
     _noiseSubscription?.cancel();
     _noiseSubscription = null;
     _noiseMeter = null;
     _countdownTimer?.cancel(); // 停止倒數
+    _volumeDecayTimer?.cancel(); // 停止 iOS 音量衰減計時器
     setState(() {
       _isListening = false;
       _animationController.reverse(); // 測試停止時，氣泡恢復原狀
@@ -568,7 +618,9 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
       _soundLevel = 0.0;
       _hasAddedWord = false;
       _remainingTime = 10; // 重置倒數
+      _smoothedSoundLevel = 0.0; // 重置 iOS 平滑音量
     });
+    _volumeDecayTimer?.cancel(); // 取消任何正在運行的衰減計時器
   }
 
   // **開始倒數計時**
@@ -866,99 +918,17 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
               ],
             ),
           ),
-          // 顯示當前音量和門檻值
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 8.0),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  "當前音量: ${_soundLevel.toStringAsFixed(1)} dB",
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: _soundLevel > _dBThreshold ? FontWeight.bold : FontWeight.normal,
-                    color: _soundLevel > _dBThreshold ? Colors.green[700] : Colors.grey[700],
-                  ),
-                ),
-                Text(
-                  "門檻: ${_dBThreshold.toStringAsFixed(0)} dB",
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                    color: Colors.blue[700],
-                  ),
-                ),
-              ],
+          const SizedBox(height: 4),
+          // 顯示當前即時音量
+          Text(
+            '當前音量: ${_soundLevel.toStringAsFixed(1)} dB',
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: _soundLevel > _dBThreshold ? FontWeight.bold : FontWeight.normal,
+              color: _soundLevel > _dBThreshold ? Colors.green : Colors.black87,
             ),
           ),
-          // 音量進度條
-          if (_isListening)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
-              child: Column(
-                children: [
-                  Row(
-                    children: [
-                      Text(
-                        "60",
-                        style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                      ),
-                      Expanded(
-                        child: Container(
-                          margin: const EdgeInsets.symmetric(horizontal: 8),
-                          height: 6,
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(3),
-                            color: Colors.grey[200],
-                          ),
-                          child: Stack(
-                            children: [
-                              // 音量進度條
-                              FractionallySizedBox(
-                                widthFactor: ((_soundLevel - 60) / 40).clamp(0.0, 1.0),
-                                child: Container(
-                                  decoration: BoxDecoration(
-                                    borderRadius: BorderRadius.circular(3),
-                                    color: _soundLevel > _dBThreshold 
-                                        ? Colors.green[500] 
-                                        : Colors.orange[500],
-                                  ),
-                                ),
-                              ),
-                              // 門檻線
-                              FractionallySizedBox(
-                                widthFactor: (_dBThreshold - 60) / 40,
-                                child: Container(
-                                  alignment: Alignment.centerRight,
-                                  child: Container(
-                                    width: 2,
-                                    height: 6,
-                                    color: Colors.blue[700],
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      Text(
-                        "100",
-                        style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    _soundLevel > _dBThreshold ? "✓ 已觸發偵測" : "等待聲音輸入",
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: _soundLevel > _dBThreshold ? FontWeight.bold : FontWeight.normal,
-                      color: _soundLevel > _dBThreshold ? Colors.green[700] : Colors.grey[600],
-                    ),
-                  ),
-                ],
-              ),
-            ),
+          const SizedBox(height: 4),
           SliderTheme(
             data: SliderTheme.of(context).copyWith(
               activeTrackColor: const Color(0xFF4A90E2),
@@ -970,51 +940,20 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
               overlayColor: const Color(0xFF4A90E2).withAlpha(32),
               overlayShape: const RoundSliderOverlayShape(overlayRadius: 28.0),
             ),
-            child: Stack(
-              children: [
-                // 主要的門檻值滑桿
-                Slider(
-                  value: _dBThreshold,
-                  min: 60,
-                  max: 100,
-                  divisions: 40, // 將範圍切成 40 份
-                  label: _dBThreshold.toStringAsFixed(0),
-                  onChanged: _isListening
-                      ? null // 測試進行中不可調整
-                      : (value) {
-                          setState(() {
-                            ///更新 _dBThreshold 的數值
-                            _dBThreshold = value;
-                          });
-                        },
-                ),
-                // 當前音量指示器
-                if (_isListening && _soundLevel >= 60 && _soundLevel <= 100)
-                  Positioned.fill(
-                    child: IgnorePointer(
-                      child: SliderTheme(
-                        data: SliderTheme.of(context).copyWith(
-                          trackHeight: 2.0,
-                          thumbColor: _soundLevel > _dBThreshold 
-                              ? Colors.green[600] 
-                              : Colors.orange[600],
-                          thumbShape: RoundSliderThumbShape(
-                            enabledThumbRadius: _soundLevel > _dBThreshold ? 10.0 : 8.0,
-                          ),
-                          activeTrackColor: Colors.transparent,
-                          inactiveTrackColor: Colors.transparent,
-                          overlayShape: SliderComponentShape.noOverlay,
-                        ),
-                        child: Slider(
-                          value: _soundLevel.clamp(60.0, 100.0),
-                          min: 60,
-                          max: 100,
-                          onChanged: null, // 只用於顯示，不可互動
-                        ),
-                      ),
-                    ),
-                  ),
-              ],
+            child: Slider(
+              value: _dBThreshold,
+              min: 60,
+              max: 100,
+              divisions: 40, // 將範圍切成 40 份
+              label: _dBThreshold.toStringAsFixed(0),
+              onChanged: _isListening
+                  ? null // 測試進行中不可調整
+                  : (value) {
+                      setState(() {
+                        ///更新 _dBThreshold 的數值
+                        _dBThreshold = value;
+                      });
+                    },
             ),
           ),
         ],
@@ -1028,6 +967,7 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
     _noiseSubscription?.cancel();
     _animationController.dispose();
     _countdownTimer?.cancel();
+    _volumeDecayTimer?.cancel(); // 清理 iOS 音量衰減計時器
     super.dispose();
   }
 }
