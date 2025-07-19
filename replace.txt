@@ -542,11 +542,6 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
         _stopListening();
       });
 
-      // iOS 開始音量衰減計時器
-      if (Platform.isIOS) {
-        _startVolumeDecayTimer();
-      }
-
       // 開始倒數計時
       _startCountdown();
     } catch (e) {
@@ -557,27 +552,38 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
     setState(() => _isListening = true);
   }
 
-  // iOS 開始音量衰減計時器
+  // iOS 開始音量衰減計時器（只在音量超過門檻時啟動）
   void _startVolumeDecayTimer() {
+    // 如果已有計時器在運行，先取消
     _volumeDecayTimer?.cancel();
+    
     _volumeDecayTimer = Timer.periodic(Duration(milliseconds: _decayInterval), (timer) {
       if (_smoothedSoundLevel > 10.0) {
         _smoothedSoundLevel *= _decayRate; // 音量逐漸衰減
         _handleVolumeDetection(_smoothedSoundLevel);
-      } else if (_smoothedSoundLevel > 0) {
+      } else {
+        // 音量衰減到很低時，停止計時器
         _smoothedSoundLevel = 0.0;
         _handleVolumeDetection(_smoothedSoundLevel);
+        timer.cancel();
       }
     });
   }
 
-  // iOS 音量處理：只更新峰值，不重複調用偵測
+  // iOS 音量處理：只在超過門檻時才啟動衰減
   void _handleiOSVolumeProcessing(double rawSoundLevel) {
     // 如果檢測到新的音量峰值，更新平滑音量
     if (rawSoundLevel > _smoothedSoundLevel) {
       _smoothedSoundLevel = rawSoundLevel;
+      
+      // 只有當音量超過門檻值時，才啟動衰減計時器
+      if (rawSoundLevel > _dBThreshold) {
+        _startVolumeDecayTimer();
+      }
     }
-    // 注意：這裡不調用 _handleVolumeDetection，由定時器統一處理
+    
+    // 使用平滑音量進行偵測
+    _handleVolumeDetection(_smoothedSoundLevel);
   }
 
   // 統一的音量偵測處理
