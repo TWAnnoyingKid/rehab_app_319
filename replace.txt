@@ -474,12 +474,11 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
   bool _isListening = false;
   double _soundLevel = 0.0;
   int _wordCount = 0;
+  bool _hasAddedWord = false;
   double _dBThreshold = 80.0;
-
-  // 新的狀態管理變數
-  bool _canCount = true; // 是否可以計數
-  Timer? _cooldownTimer; // 冷卻計時器，防止快速重複計數
-  Timer? _resetTimer; // 超時重置計時器，處理iOS音量下降慢的問題
+  
+  // 音量上升偵測狀態
+  bool _wasAboveThreshold = false; // 記錄上一次是否超過門檻值
 
   // 動畫控制
   late AnimationController _animationController;
@@ -528,36 +527,22 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
         setState(() {
           _soundLevel = noiseEvent.meanDecibel; //更新音量數據
 
-          if (_soundLevel > _dBThreshold) {
-            if (_canCount) {
-              _wordCount++;
-              _canCount = false; // 鎖定，防止重複計數
-              _animationController.forward(); // 氣泡放大
-
-              // 設定一個短的冷卻計時器，防止音量瞬間波動造成的重複計數
-              _cooldownTimer?.cancel();
-              _cooldownTimer = Timer(const Duration(milliseconds: 250), () {});
-
-              // 設定一個長的超時重置計時器，解決iOS音量下降慢的問題
-              _resetTimer?.cancel();
-              _resetTimer = Timer(const Duration(milliseconds: 800), () {
-                // 如果超時後音量仍然很高，也強制重置
-                if (mounted) {
-                  setState(() {
-                    _canCount = true;
-                    _animationController.reverse();
-                  });
-                }
-              });
-            }
-          } else {
-            // 只有在冷卻期過後，音量下降才重置狀態
-            if (_cooldownTimer != null && _cooldownTimer!.isActive) {
-              // 冷卻期內，不處理音量下降
-            } else {
-              _resetCountability();
-            }
+          // 新的音量上升偵測邏輯
+          bool isCurrentlyAboveThreshold = _soundLevel > _dBThreshold;
+          
+          // 只有當音量從低於門檻值上升到高於門檻值時才計數
+          if (isCurrentlyAboveThreshold && !_wasAboveThreshold) {
+            _wordCount++;
+            _animationController.forward(); // 氣泡放大
           }
+          
+          // 當音量降到門檻值以下時，氣泡縮小
+          if (!isCurrentlyAboveThreshold && _wasAboveThreshold) {
+            _animationController.reverse(); // 氣泡縮小
+          }
+          
+          // 更新狀態記錄
+          _wasAboveThreshold = isCurrentlyAboveThreshold;
         });
       }, onError: (e) {
         debugPrint('噪音偵測錯誤：$e');
@@ -579,8 +564,6 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
     _noiseSubscription = null;
     _noiseMeter = null;
     _countdownTimer?.cancel(); // 停止倒數
-    _cooldownTimer?.cancel(); // 停止冷卻計時器
-    _resetTimer?.cancel(); // 停止超時計時器
     setState(() {
       _isListening = false;
       _animationController.reverse(); // 測試停止時，氣泡恢復原狀
@@ -591,20 +574,10 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
     setState(() {
       _wordCount = 0;
       _soundLevel = 0.0;
-      _canCount = true; // 重置為可計數狀態
+      _hasAddedWord = false;
+      _wasAboveThreshold = false; // 重置音量狀態記錄
       _remainingTime = 10; // 重置倒數
     });
-  }
-
-  // 新增：重置可計數狀態的函式
-  void _resetCountability() {
-    if (!_canCount) {
-      _resetTimer?.cancel(); // 取消超時計時器，因為音量已正常下降
-      setState(() {
-        _canCount = true;
-        _animationController.reverse();
-      });
-    }
   }
 
   // **開始倒數計時**
@@ -985,7 +958,7 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    _soundLevel > _dBThreshold ? "✓ 已觸發偵測" : "等待聲音輸入",
+                    _soundLevel > _dBThreshold ? "✓ 偵測中" : "等待聲音輸入",
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: _soundLevel > _dBThreshold ? FontWeight.bold : FontWeight.normal,
@@ -1062,8 +1035,6 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
   void dispose() {
     //取消動作
     _noiseSubscription?.cancel();
-    _cooldownTimer?.cancel();
-    _resetTimer?.cancel();
     _animationController.dispose();
     _countdownTimer?.cancel();
     super.dispose();
