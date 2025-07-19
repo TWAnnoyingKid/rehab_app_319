@@ -476,8 +476,8 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
   int _wordCount = 0;
   bool _hasAddedWord = false;
   double _dBThreshold = 80.0;
-
-  // 冷卻機制
+  
+  // 冷卻期控制
   bool _isInCooldown = false;
   Timer? _cooldownTimer;
 
@@ -525,26 +525,29 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
     try {
       // 開始監聽音量
       _noiseSubscription = _noiseMeter!.noiseStream.listen((noiseEvent) {
+        // 如果在冷卻期，忽略音量數據
+        if (_isInCooldown) {
+          setState(() {
+            _soundLevel = 0.0; // 冷卻期間將音量顯示為0
+          });
+          return;
+        }
+        
         setState(() {
-          // 如果在冷卻期間，不更新音量顯示
-          if (!_isInCooldown) {
-            _soundLevel = noiseEvent.meanDecibel; //更新音量數據
-          }
+          _soundLevel = noiseEvent.meanDecibel; //更新音量數據
 
-          // 只有在不處於冷卻期且未添加過詞語時才檢測
-          if (!_isInCooldown && _soundLevel > _dBThreshold && !_hasAddedWord) {
-            _wordCount++;
-            _hasAddedWord = true;
-            _animationController.forward(); // 氣泡放大
-            
-            // 開始冷卻期：重置音量並禁用檢測100ms
-            _startCooldown();
-            
-          } else if (_soundLevel <= _dBThreshold) {
-            _hasAddedWord = false;
-            if (!_isInCooldown) {
-              _animationController.reverse(); // 氣泡縮小
+          if (_soundLevel > _dBThreshold) {
+            if (!_hasAddedWord) {
+              _wordCount++;
+              _hasAddedWord = true;
+              
+              // 立即進入冷卻期
+              _startCooldown();
             }
+            _animationController.forward(); // 氣泡放大
+          } else {
+            _hasAddedWord = false;
+            _animationController.reverse(); // 氣泡縮小
           }
         });
       }, onError: (e) {
@@ -575,30 +578,26 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
     });
   }
 
-  // 開始冷卻期
-  void _startCooldown() {
-    setState(() {
-      _isInCooldown = true;
-      _soundLevel = 0.0; // 重置音量顯示
-    });
-    
-    _cooldownTimer?.cancel();
-    _cooldownTimer = Timer(const Duration(milliseconds: 100), () {
-      setState(() {
-        _isInCooldown = false;
-        _animationController.reverse(); // 冷卻結束時氣泡縮小
-      });
-    });
-  }
-
   void _resetValues() {
-    _cooldownTimer?.cancel(); // 取消任何進行中的冷卻計時器
     setState(() {
       _wordCount = 0;
       _soundLevel = 0.0;
       _hasAddedWord = false;
       _isInCooldown = false; // 重置冷卻狀態
       _remainingTime = 10; // 重置倒數
+    });
+    _cooldownTimer?.cancel(); // 取消任何正在進行的冷卻計時器
+  }
+
+  // **開始冷卻期**
+  void _startCooldown() {
+    _isInCooldown = true;
+    _cooldownTimer?.cancel(); // 取消之前的計時器
+    _cooldownTimer = Timer(const Duration(milliseconds: 100), () {
+      setState(() {
+        _isInCooldown = false;
+        _hasAddedWord = false; // 重置計數標記
+      });
     });
   }
 
@@ -908,7 +907,11 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
                   style: TextStyle(
                     fontSize: 14,
                     fontWeight: _soundLevel > _dBThreshold ? FontWeight.bold : FontWeight.normal,
-                    color: _soundLevel > _dBThreshold ? Colors.green[700] : Colors.grey[700],
+                    color: _isInCooldown 
+                        ? Colors.orange[600]  // 冷卻期顯示橘色
+                        : _soundLevel > _dBThreshold 
+                        ? Colors.green[700] 
+                        : Colors.grey[700],
                   ),
                 ),
                 Text(
@@ -950,7 +953,9 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
                                 child: Container(
                                   decoration: BoxDecoration(
                                     borderRadius: BorderRadius.circular(3),
-                                    color: _soundLevel > _dBThreshold 
+                                    color: _isInCooldown
+                                        ? Colors.orange[500]  // 冷卻期顯示橘色
+                                        : _soundLevel > _dBThreshold 
                                         ? Colors.green[500] 
                                         : Colors.orange[500],
                                   ),
@@ -980,11 +985,19 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    _soundLevel > _dBThreshold ? "✓ 已觸發偵測" : "等待聲音輸入",
+                    _isInCooldown 
+                        ? "⏱️ 冷卻中..." 
+                        : _soundLevel > _dBThreshold 
+                        ? "✓ 已觸發偵測" 
+                        : "等待聲音輸入",
                     style: TextStyle(
                       fontSize: 12,
-                      fontWeight: _soundLevel > _dBThreshold ? FontWeight.bold : FontWeight.normal,
-                      color: _soundLevel > _dBThreshold ? Colors.green[700] : Colors.grey[600],
+                      fontWeight: _soundLevel > _dBThreshold || _isInCooldown ? FontWeight.bold : FontWeight.normal,
+                      color: _isInCooldown 
+                          ? Colors.orange[600]
+                          : _soundLevel > _dBThreshold 
+                          ? Colors.green[700] 
+                          : Colors.grey[600],
                     ),
                   ),
                 ],
