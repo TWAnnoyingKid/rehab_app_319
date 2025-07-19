@@ -481,8 +481,11 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
   // iOS 音量平滑處理相關變數
   double _smoothedSoundLevel = 0.0;
   Timer? _volumeDecayTimer;
+  Timer? _cooldownTimer;
+  bool _isInCooldown = false;
   static const double _decayRate = 0.85; // 音量衰減速率 (iOS 專用)
   static const int _decayInterval = 50; // 衰減間隔 (毫秒)
+  static const int _cooldownDuration = 200; // 冷卻期持續時間 (毫秒)
 
   // 動畫控制
   late AnimationController _animationController;
@@ -562,16 +565,31 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
         _smoothedSoundLevel *= _decayRate; // 音量逐漸衰減
         _handleVolumeDetection(_smoothedSoundLevel);
       } else {
-        // 音量衰減到很低時，停止計時器
+        // 音量衰減到很低時，停止計時器並啟動冷卻期
         _smoothedSoundLevel = 0.0;
         _handleVolumeDetection(_smoothedSoundLevel);
         timer.cancel();
+        _startCooldownPeriod();
       }
+    });
+  }
+
+  // 啟動冷卻期，避免衰減後立即重新觸發
+  void _startCooldownPeriod() {
+    _isInCooldown = true;
+    _cooldownTimer?.cancel();
+    _cooldownTimer = Timer(Duration(milliseconds: _cooldownDuration), () {
+      _isInCooldown = false;
     });
   }
 
   // iOS 音量處理：只在超過門檻時才啟動衰減
   void _handleiOSVolumeProcessing(double rawSoundLevel) {
+    // 如果在冷卻期內，忽略所有音量更新
+    if (_isInCooldown) {
+      return;
+    }
+    
     // 如果檢測到新的音量峰值，更新平滑音量
     if (rawSoundLevel > _smoothedSoundLevel) {
       _smoothedSoundLevel = rawSoundLevel;
@@ -610,6 +628,7 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
     _noiseMeter = null;
     _countdownTimer?.cancel(); // 停止倒數
     _volumeDecayTimer?.cancel(); // 停止 iOS 音量衰減計時器
+    _cooldownTimer?.cancel(); // 停止冷卻期計時器
     setState(() {
       _isListening = false;
       _animationController.reverse(); // 測試停止時，氣泡恢復原狀
@@ -623,8 +642,10 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
       _hasAddedWord = false;
       _remainingTime = 10; // 重置倒數
       _smoothedSoundLevel = 0.0; // 重置 iOS 平滑音量
+      _isInCooldown = false; // 重置冷卻期狀態
     });
     _volumeDecayTimer?.cancel(); // 取消任何正在運行的衰減計時器
+    _cooldownTimer?.cancel(); // 取消任何正在運行的冷卻期計時器
   }
 
   // **開始倒數計時**
@@ -972,6 +993,7 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
     _animationController.dispose();
     _countdownTimer?.cancel();
     _volumeDecayTimer?.cancel(); // 清理 iOS 音量衰減計時器
+    _cooldownTimer?.cancel(); // 清理冷卻期計時器
     super.dispose();
   }
 }
