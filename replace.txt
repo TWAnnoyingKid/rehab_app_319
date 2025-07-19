@@ -476,11 +476,6 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
   int _wordCount = 0;
   bool _hasAddedWord = false;
   double _dBThreshold = 80.0;
-  
-  // 音節間隔控制 - 確保間斷性發音
-  Timer? _syllableCooldownTimer;
-  bool _inCooldownPeriod = false;
-  final int _cooldownDurationMs = 500; // 500毫秒冷卻期
 
   // 動畫控制
   late AnimationController _animationController;
@@ -527,21 +522,18 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
       // 開始監聽音量
       _noiseSubscription = _noiseMeter!.noiseStream.listen((noiseEvent) {
         setState(() {
-          _soundLevel = noiseEvent.meanDecibel; //更新音量數據
+          // 改為使用 maxDecibel 來獲得更靈敏的峰值，解決 iOS 上音量下降慢的問題
+          _soundLevel = noiseEvent.maxDecibel; //更新音量數據
 
-          // 只有在非冷卻期且音量超過門檻時才計數
-          if (_soundLevel > _dBThreshold && !_inCooldownPeriod) {
+          if (_soundLevel > _dBThreshold) {
             if (!_hasAddedWord) {
               _wordCount++;
               _hasAddedWord = true;
-              _startSyllableCooldown(); // 開始冷卻期
             }
             _animationController.forward(); // 氣泡放大
-          } else if (_soundLevel <= _dBThreshold) {
+          } else {
             _hasAddedWord = false;
-            if (!_inCooldownPeriod) {
-              _animationController.reverse(); // 氣泡縮小
-            }
+            _animationController.reverse(); // 氣泡縮小
           }
         });
       }, onError: (e) {
@@ -564,10 +556,8 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
     _noiseSubscription = null;
     _noiseMeter = null;
     _countdownTimer?.cancel(); // 停止倒數
-    _syllableCooldownTimer?.cancel(); // 停止冷卻計時器
     setState(() {
       _isListening = false;
-      _inCooldownPeriod = false;
       _animationController.reverse(); // 測試停止時，氣泡恢復原狀
     });
   }
@@ -577,24 +567,7 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
       _wordCount = 0;
       _soundLevel = 0.0;
       _hasAddedWord = false;
-      _inCooldownPeriod = false;
       _remainingTime = 10; // 重置倒數
-    });
-    _syllableCooldownTimer?.cancel();
-  }
-
-  // **開始音節間隔冷卻期**
-  void _startSyllableCooldown() {
-    _inCooldownPeriod = true;
-    _syllableCooldownTimer?.cancel();
-    _syllableCooldownTimer = Timer(Duration(milliseconds: _cooldownDurationMs), () {
-      setState(() {
-        _inCooldownPeriod = false;
-        // 冷卻期結束時，如果音量仍低於門檻，讓氣泡縮小
-        if (_soundLevel <= _dBThreshold) {
-          _animationController.reverse();
-        }
-      });
     });
   }
 
@@ -709,15 +682,11 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
         ),
         const SizedBox(height: 30),
         Text(
-          _isListening 
-              ? "請對著麥克風大聲發音！\n記住：每個音節要分開發音，不要連續" 
-              : "點擊「開始測試」以進行錄音",
-          textAlign: TextAlign.center,
+          _isListening ? "請對著麥克風大聲發音！" : "點擊「開始測試」以進行錄音",
           style: TextStyle(
             fontSize: 18,
             color: Colors.grey[700],
             fontWeight: FontWeight.w500,
-            height: 1.3,
           ),
         ),
       ],
@@ -980,19 +949,11 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    _inCooldownPeriod 
-                        ? "⏱ 冷卻中 (${(_cooldownDurationMs / 1000).toStringAsFixed(1)}s)"
-                        : _soundLevel > _dBThreshold 
-                            ? "✓ 已觸發偵測" 
-                            : "等待聲音輸入",
+                    _soundLevel > _dBThreshold ? "✓ 已觸發偵測" : "等待聲音輸入",
                     style: TextStyle(
                       fontSize: 12,
-                      fontWeight: (_soundLevel > _dBThreshold || _inCooldownPeriod) ? FontWeight.bold : FontWeight.normal,
-                      color: _inCooldownPeriod 
-                          ? Colors.orange[700]
-                          : _soundLevel > _dBThreshold 
-                              ? Colors.green[700] 
-                              : Colors.grey[600],
+                      fontWeight: _soundLevel > _dBThreshold ? FontWeight.bold : FontWeight.normal,
+                      color: _soundLevel > _dBThreshold ? Colors.green[700] : Colors.grey[600],
                     ),
                   ),
                 ],
@@ -1067,7 +1028,6 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
     _noiseSubscription?.cancel();
     _animationController.dispose();
     _countdownTimer?.cancel();
-    _syllableCooldownTimer?.cancel(); // 清理冷卻計時器
     super.dispose();
   }
 }
