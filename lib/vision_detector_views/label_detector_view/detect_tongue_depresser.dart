@@ -18,6 +18,7 @@ import '../../vision_detector_views/label_detector_view/roi_processor.dart'; // 
 import 'package:audioplayers/audioplayers.dart'; //播放音檔
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:typed_data';
 
 // 繪製ROI框的Painter
 class ROIPainter extends CustomPainter {
@@ -69,6 +70,10 @@ class _ImageLabelViewState extends State<tongue_depresser> {
 
   // 標記是否是第一次構建
   bool _isFirstBuild = true;
+
+  // 用於顯示 ROI 裁切圖像的變數
+  Uint8List? _roiImageBytes;
+  bool _showRoiImage = true; // 控制是否顯示 ROI 圖像
 
   // 獲取調整後的ROI矩形 - 統一的ROI框定義方法
   Rect getAdjustedRoiRect(Size screenSize) {
@@ -138,6 +143,66 @@ class _ImageLabelViewState extends State<tongue_depresser> {
         // 畫出ROI框
         CustomPaint(
           painter: ROIPainter(adjustedRoiRect),
+        ),
+
+        // 顯示 ROI 裁切圖像（用於調試）
+        if (_showRoiImage && _roiImageBytes != null)
+          Positioned(
+            top: 50,
+            right: 10,
+            child: Container(
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.red, width: 2),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Column(
+                children: [
+                  Container(
+                    padding: EdgeInsets.all(4),
+                    color: Colors.black54,
+                    child: Text(
+                      'ROI 裁切圖像',
+                      style: TextStyle(color: Colors.white, fontSize: 12),
+                    ),
+                  ),
+                  Image.memory(
+                    _roiImageBytes!,
+                    width: 100,
+                    height: 50,
+                    fit: BoxFit.cover,
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+        // ROI 圖像顯示開關
+        Positioned(
+          top: 50,
+          left: 10,
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.black54,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Column(
+              children: [
+                Text(
+                  'ROI 調試',
+                  style: TextStyle(color: Colors.white, fontSize: 12),
+                ),
+                Switch(
+                  value: _showRoiImage,
+                  onChanged: (bool value) {
+                    setState(() {
+                      _showRoiImage = value;
+                    });
+                  },
+                  activeColor: Colors.amber,
+                ),
+              ],
+            ),
+          ),
         ),
 
         if (!smile.ChangeUI) ...[
@@ -475,30 +540,43 @@ class _ImageLabelViewState extends State<tongue_depresser> {
         final adjustedRoiRect = getAdjustedRoiRect(screenSize);
 
         InputImage? roiInputImage;
+        Uint8List? roiImageBytes;
 
         // 根據平台選擇合適的處理方法
         if (io.Platform.isIOS) {
           print('使用 iOS 特定的 ROI 處理方法');
-          // 使用 iOS 特定的 ROI 處理器
-          roiInputImage = await ROIProcessor.createROIInputImageForIOS(
+          // 使用 iOS 特定的 ROI 處理器，同時獲取圖像字節
+          final roiResult = await ROIProcessor.createROIInputImageForIOSWithBytes(
             _lastCameraImage!,
             adjustedRoiRect,
             _cameraDescription!,
             screenSize: screenSize,
           );
+          roiInputImage = roiResult.$1;
+          roiImageBytes = roiResult.$2;
         } else {
           print('使用通用的 ROI 處理方法');
-          // 使用通用的 ROI 處理器
-          roiInputImage = await ROIProcessor.createROIInputImage(
+          // 使用通用的 ROI 處理器，同時獲取圖像字節
+          final roiResult = await ROIProcessor.createROIInputImageWithBytes(
             _lastCameraImage!,
             adjustedRoiRect,
             _cameraDescription!,
             screenSize: screenSize,
           );
+          roiInputImage = roiResult.$1;
+          roiImageBytes = roiResult.$2;
         }
 
         // 如果成功處理ROI，使用第二個模型處理ROI圖像
         if (roiInputImage != null) {
+          // 更新UI顯示的ROI圖像
+          if (roiImageBytes != null && mounted) {
+            setState(() {
+              _roiImageBytes = roiImageBytes;
+            });
+            print('成功獲取 ROI 圖像字節數據，大小: ${roiImageBytes.length}');
+          }
+          
           final result = await _secondImageLabeler.processImage(roiInputImage);
           print('ROI 模型檢測結果: ${result.map((e) => '${e.label}(${e.confidence.toStringAsFixed(2)})').join(', ')}');
           return result;
