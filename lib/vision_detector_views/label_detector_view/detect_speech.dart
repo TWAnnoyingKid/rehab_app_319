@@ -521,34 +521,23 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
     try {
       // 開始監聽音量
       _noiseSubscription = _noiseMeter!.noiseStream.listen((noiseEvent) {
-        // 確保在主線程中更新UI
-        if (mounted) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted) {
-              setState(() {
-                _soundLevel = noiseEvent.meanDecibel; //更新音量數據
+        setState(() {
+          _soundLevel = noiseEvent.meanDecibel; //更新音量數據
 
-                if (_soundLevel > _dBThreshold) {
-                  if (!_hasAddedWord) {
-                    _wordCount++;
-                    _hasAddedWord = true;
-                  }
-                  _animationController.forward(); // 氣泡放大
-                } else {
-                  _hasAddedWord = false;
-                  _animationController.reverse(); // 氣泡縮小
-                }
-              });
+          if (_soundLevel > _dBThreshold) {
+            if (!_hasAddedWord) {
+              _wordCount++;
+              _hasAddedWord = true;
             }
-          });
-        }
+            _animationController.forward(); // 氣泡放大
+          } else {
+            _hasAddedWord = false;
+            _animationController.reverse(); // 氣泡縮小
+          }
+        });
       }, onError: (e) {
         debugPrint('噪音偵測錯誤：$e');
-        if (mounted) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            _stopListening();
-          });
-        }
+        _stopListening();
       });
 
       // 開始倒數計時
@@ -566,18 +555,10 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
     _noiseSubscription = null;
     _noiseMeter = null;
     _countdownTimer?.cancel(); // 停止倒數
-    
-    // 確保在主線程中更新UI
-    if (mounted) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
-          setState(() {
-            _isListening = false;
-            _animationController.reverse(); // 測試停止時，氣泡恢復原狀
-          });
-        }
-      });
-    }
+    setState(() {
+      _isListening = false;
+      _animationController.reverse(); // 測試停止時，氣泡恢復原狀
+    });
   }
 
   void _resetValues() {
@@ -884,6 +865,99 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
               ],
             ),
           ),
+          // 顯示當前音量和門檻值
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 8.0),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  "當前音量: ${_soundLevel.toStringAsFixed(1)} dB",
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: _soundLevel > _dBThreshold ? FontWeight.bold : FontWeight.normal,
+                    color: _soundLevel > _dBThreshold ? Colors.green[700] : Colors.grey[700],
+                  ),
+                ),
+                Text(
+                  "門檻: ${_dBThreshold.toStringAsFixed(0)} dB",
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                    color: Colors.blue[700],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          // 音量進度條
+          if (_isListening)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      Text(
+                        "60",
+                        style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                      ),
+                      Expanded(
+                        child: Container(
+                          margin: const EdgeInsets.symmetric(horizontal: 8),
+                          height: 6,
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(3),
+                            color: Colors.grey[200],
+                          ),
+                          child: Stack(
+                            children: [
+                              // 音量進度條
+                              FractionallySizedBox(
+                                widthFactor: ((_soundLevel - 60) / 40).clamp(0.0, 1.0),
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(3),
+                                    color: _soundLevel > _dBThreshold 
+                                        ? Colors.green[500] 
+                                        : Colors.orange[500],
+                                  ),
+                                ),
+                              ),
+                              // 門檻線
+                              FractionallySizedBox(
+                                widthFactor: (_dBThreshold - 60) / 40,
+                                child: Container(
+                                  alignment: Alignment.centerRight,
+                                  child: Container(
+                                    width: 2,
+                                    height: 6,
+                                    color: Colors.blue[700],
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      Text(
+                        "100",
+                        style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    _soundLevel > _dBThreshold ? "✓ 已觸發偵測" : "等待聲音輸入",
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: _soundLevel > _dBThreshold ? FontWeight.bold : FontWeight.normal,
+                      color: _soundLevel > _dBThreshold ? Colors.green[700] : Colors.grey[600],
+                    ),
+                  ),
+                ],
+              ),
+            ),
           SliderTheme(
             data: SliderTheme.of(context).copyWith(
               activeTrackColor: const Color(0xFF4A90E2),
@@ -895,20 +969,51 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
               overlayColor: const Color(0xFF4A90E2).withAlpha(32),
               overlayShape: const RoundSliderOverlayShape(overlayRadius: 28.0),
             ),
-            child: Slider(
-              value: _dBThreshold,
-              min: 60,
-              max: 100,
-              divisions: 40, // 將範圍切成 40 份
-              label: _dBThreshold.toStringAsFixed(0),
-              onChanged: _isListening
-                  ? null // 測試進行中不可調整
-                  : (value) {
-                      setState(() {
-                        ///更新 _dBThreshold 的數值
-                        _dBThreshold = value;
-                      });
-                    },
+            child: Stack(
+              children: [
+                // 主要的門檻值滑桿
+                Slider(
+                  value: _dBThreshold,
+                  min: 60,
+                  max: 100,
+                  divisions: 40, // 將範圍切成 40 份
+                  label: _dBThreshold.toStringAsFixed(0),
+                  onChanged: _isListening
+                      ? null // 測試進行中不可調整
+                      : (value) {
+                          setState(() {
+                            ///更新 _dBThreshold 的數值
+                            _dBThreshold = value;
+                          });
+                        },
+                ),
+                // 當前音量指示器
+                if (_isListening && _soundLevel >= 60 && _soundLevel <= 100)
+                  Positioned.fill(
+                    child: IgnorePointer(
+                      child: SliderTheme(
+                        data: SliderTheme.of(context).copyWith(
+                          trackHeight: 2.0,
+                          thumbColor: _soundLevel > _dBThreshold 
+                              ? Colors.green[600] 
+                              : Colors.orange[600],
+                          thumbShape: RoundSliderThumbShape(
+                            enabledThumbRadius: _soundLevel > _dBThreshold ? 10.0 : 8.0,
+                          ),
+                          activeTrackColor: Colors.transparent,
+                          inactiveTrackColor: Colors.transparent,
+                          overlayShape: SliderComponentShape.noOverlay,
+                        ),
+                        child: Slider(
+                          value: _soundLevel.clamp(60.0, 100.0),
+                          min: 60,
+                          max: 100,
+                          onChanged: null, // 只用於顯示，不可互動
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
             ),
           ),
         ],
