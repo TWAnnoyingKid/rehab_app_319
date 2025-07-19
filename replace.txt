@@ -474,13 +474,12 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
   bool _isListening = false;
   double _soundLevel = 0.0;
   int _wordCount = 0;
-  bool _hasAddedWord = false;
   double _dBThreshold = 80.0;
-  
-  // 音節偵測冷卻時間
-  Timer? _cooldownTimer;
-  bool _isInCooldown = false;
-  final int _cooldownDuration = 400; // 冷卻時間，單位為毫秒
+
+  // 新的狀態管理變數
+  bool _canCount = true; // 是否可以計數
+  Timer? _cooldownTimer; // 冷卻計時器，防止快速重複計數
+  Timer? _resetTimer; // 超時重置計時器，處理iOS音量下降慢的問題
 
   // 動畫控制
   late AnimationController _animationController;
@@ -529,27 +528,35 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
         setState(() {
           _soundLevel = noiseEvent.meanDecibel; //更新音量數據
 
-          if (_soundLevel > _dBThreshold && !_isInCooldown) {
-            // 只有在沒有處於冷卻期間時才處理超過閾值的聲音
-            if (!_hasAddedWord) {
+          if (_soundLevel > _dBThreshold) {
+            if (_canCount) {
               _wordCount++;
-              _hasAddedWord = true;
-              
-              // 開始冷卻期
-              _isInCooldown = true;
+              _canCount = false; // 鎖定，防止重複計數
+              _animationController.forward(); // 氣泡放大
+
+              // 設定一個短的冷卻計時器，防止音量瞬間波動造成的重複計數
               _cooldownTimer?.cancel();
-              _cooldownTimer = Timer(Duration(milliseconds: _cooldownDuration), () {
-                setState(() {
-                  _isInCooldown = false;
-                  _hasAddedWord = false;
-                });
+              _cooldownTimer = Timer(const Duration(milliseconds: 250), () {});
+
+              // 設定一個長的超時重置計時器，解決iOS音量下降慢的問題
+              _resetTimer?.cancel();
+              _resetTimer = Timer(const Duration(milliseconds: 800), () {
+                // 如果超時後音量仍然很高，也強制重置
+                if (mounted) {
+                  setState(() {
+                    _canCount = true;
+                    _animationController.reverse();
+                  });
+                }
               });
             }
-            _animationController.forward(); // 氣泡放大
-          } else if (_soundLevel <= _dBThreshold && !_isInCooldown) {
-            // 只有在非冷卻期間且音量低於閾值時才重置 _hasAddedWord
-            _hasAddedWord = false;
-            _animationController.reverse(); // 氣泡縮小
+          } else {
+            // 只有在冷卻期過後，音量下降才重置狀態
+            if (_cooldownTimer != null && _cooldownTimer!.isActive) {
+              // 冷卻期內，不處理音量下降
+            } else {
+              _resetCountability();
+            }
           }
         });
       }, onError: (e) {
@@ -572,6 +579,8 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
     _noiseSubscription = null;
     _noiseMeter = null;
     _countdownTimer?.cancel(); // 停止倒數
+    _cooldownTimer?.cancel(); // 停止冷卻計時器
+    _resetTimer?.cancel(); // 停止超時計時器
     setState(() {
       _isListening = false;
       _animationController.reverse(); // 測試停止時，氣泡恢復原狀
@@ -579,14 +588,23 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
   }
 
   void _resetValues() {
-    _cooldownTimer?.cancel();
     setState(() {
       _wordCount = 0;
       _soundLevel = 0.0;
-      _hasAddedWord = false;
-      _isInCooldown = false;
+      _canCount = true; // 重置為可計數狀態
       _remainingTime = 10; // 重置倒數
     });
+  }
+
+  // 新增：重置可計數狀態的函式
+  void _resetCountability() {
+    if (!_canCount) {
+      _resetTimer?.cancel(); // 取消超時計時器，因為音量已正常下降
+      setState(() {
+        _canCount = true;
+        _animationController.reverse();
+      });
+    }
   }
 
   // **開始倒數計時**
@@ -1044,9 +1062,10 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
   void dispose() {
     //取消動作
     _noiseSubscription?.cancel();
+    _cooldownTimer?.cancel();
+    _resetTimer?.cancel();
     _animationController.dispose();
     _countdownTimer?.cancel();
-    _cooldownTimer?.cancel();
     super.dispose();
   }
 }
