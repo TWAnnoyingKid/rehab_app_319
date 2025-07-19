@@ -7,7 +7,6 @@ import '../../main.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter/services.dart';
 import '../../flutter_flow/flutter_flow_util.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:intl/intl.dart';
 
 /// **第一個畫面：讓使用者選擇 PA、TA、KA**
@@ -522,23 +521,34 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
     try {
       // 開始監聽音量
       _noiseSubscription = _noiseMeter!.noiseStream.listen((noiseEvent) {
-        setState(() {
-          _soundLevel = noiseEvent.meanDecibel; //更新音量數據
+        // 確保在主線程中更新UI
+        if (mounted) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) {
+              setState(() {
+                _soundLevel = noiseEvent.meanDecibel; //更新音量數據
 
-          if (_soundLevel > _dBThreshold) {
-            if (!_hasAddedWord) {
-              _wordCount++;
-              _hasAddedWord = true;
+                if (_soundLevel > _dBThreshold) {
+                  if (!_hasAddedWord) {
+                    _wordCount++;
+                    _hasAddedWord = true;
+                  }
+                  _animationController.forward(); // 氣泡放大
+                } else {
+                  _hasAddedWord = false;
+                  _animationController.reverse(); // 氣泡縮小
+                }
+              });
             }
-            _animationController.forward(); // 氣泡放大
-          } else {
-            _hasAddedWord = false;
-            _animationController.reverse(); // 氣泡縮小
-          }
-        });
+          });
+        }
       }, onError: (e) {
         debugPrint('噪音偵測錯誤：$e');
-        _stopListening();
+        if (mounted) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            _stopListening();
+          });
+        }
       });
 
       // 開始倒數計時
@@ -556,10 +566,18 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
     _noiseSubscription = null;
     _noiseMeter = null;
     _countdownTimer?.cancel(); // 停止倒數
-    setState(() {
-      _isListening = false;
-      _animationController.reverse(); // 測試停止時，氣泡恢復原狀
-    });
+    
+    // 確保在主線程中更新UI
+    if (mounted) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          setState(() {
+            _isListening = false;
+            _animationController.reverse(); // 測試停止時，氣泡恢復原狀
+          });
+        }
+      });
+    }
   }
 
   void _resetValues() {

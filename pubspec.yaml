@@ -24,7 +24,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  noise_meter: ^3.0.1
+  noise_meter: ^3.0.1  # 使用與 audio_streamer 2.3.0 相容的版本
   permission_handler: ^10.0.0
   speech_to_text: ^6.1.1
   fftea: ^1.5.0+1
