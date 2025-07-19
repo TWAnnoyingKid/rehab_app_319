@@ -115,6 +115,8 @@ flutter:
     - assets/taigi_pose_audios/
     - assets/ml/
     - assets/model/rsst_integrated_2k2_cnn_att2_2_ir9.onnx
+    - assets/model/rsst_v10_ir9.onnx
+
 
 flutter_icons:
   android: "launcher_icon"

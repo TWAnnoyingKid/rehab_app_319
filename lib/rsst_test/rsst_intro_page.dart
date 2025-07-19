@@ -455,7 +455,8 @@ class _RsstIntroPageState extends State<RsstIntroPage> {
                     ),
                   ).animate().fade(duration: 500.ms).scale(duration: 500.ms),
 
-                  /* 上傳音檔按鈕 測試模型用 部屬時刪除
+                  /*
+                  //上傳音檔按鈕 測試模型用 部屬時刪除
                   Padding(
                     padding: EdgeInsetsDirectional.fromSTEB(0, 0, 0, 30),
                     child: ElevatedButton.icon(
@@ -476,6 +477,7 @@ class _RsstIntroPageState extends State<RsstIntroPage> {
                     ),
                   ).animate().fade(duration: 500.ms, delay: 200.ms),
 
+
                   // 上傳進度指示器
                   if (_isUploading)
                     Padding(
@@ -494,7 +496,8 @@ class _RsstIntroPageState extends State<RsstIntroPage> {
                         ],
                       ),
                     ),
-                  */
+
+                    */
                 ],
               ),
             ),

@@ -9,27 +9,27 @@ class SwallowDetector {
   late final OrtSession _session;
   bool _initialized = false;
 
-  final double _threshold      = 0.7;  // 吞嚥判定閾值
+  final double _threshold      = 0.6;  // 吞嚥判定閾值
   final double _minStartTime   = 2.5;  // 忽略前 2.5 秒
   final double _cooldownPeriod = 1;  // 冷卻期長度
 
   // 新增確認相關參數
   final int _maxConfirmationWindows = 4;  // 最大確認窗口數（包括候選窗口）
-  final int _requiredConfirmations = 2;   // 需要的最小確認次數（包括候選窗口）
+  final int _requiredConfirmations = 1;   // 需要的最小確認次數（包括候選窗口）
 
   /// 初始化 ONNX Runtime 環境並載入模型
   Future<void> init() async {
     if (_initialized) return;
-    // 1) 初始化 ORT 環境（無回傳值）
+    // 初始化 ORT 環境（無回傳值）
     OrtEnv.instance.init();
 
-    // 2) 讀取模型 bytes
+    // 讀取模型 bytes
     final raw = await rootBundle.load(
-        'assets/model/rsst_integrated_2k2_cnn_att2_2_ir9.onnx'
+      'assets/model/rsst_integrated_2k2_cnn_att2_2_ir9.onnx'
     );
     final modelBytes = raw.buffer.asUint8List();
 
-    // 3) 建立 Session
+    // 建立 Session
     _session = OrtSession.fromBuffer(
       modelBytes,
       OrtSessionOptions(),
