@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io' as io;
 import 'package:flutter/material.dart';
 import 'package:noise_meter/noise_meter.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -477,6 +478,13 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
   bool _hasAddedWord = false;
   double _dBThreshold = 80.0;
 
+  // 平台特定的音量處理
+  Timer? _volumeDecayTimer;
+  double _lastSignificantVolume = 0.0;
+  DateTime _lastVolumeUpdate = DateTime.now();
+  static const int _volumeDecayDuration = 200; // iOS音量衰減間隔(毫秒)
+  static const double _volumeDecayRate = 0.85; // iOS音量衰減係數
+
   // 動畫控制
   late AnimationController _animationController;
   late Animation<double> _scaleAnimation;
@@ -521,20 +529,7 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
     try {
       // 開始監聽音量
       _noiseSubscription = _noiseMeter!.noiseStream.listen((noiseEvent) {
-        setState(() {
-          _soundLevel = noiseEvent.meanDecibel; //更新音量數據
-
-          if (_soundLevel > _dBThreshold) {
-            if (!_hasAddedWord) {
-              _wordCount++;
-              _hasAddedWord = true;
-            }
-            _animationController.forward(); // 氣泡放大
-          } else {
-            _hasAddedWord = false;
-            _animationController.reverse(); // 氣泡縮小
-          }
-        });
+        _processVolumeData(noiseEvent.meanDecibel);
       }, onError: (e) {
         debugPrint('噪音偵測錯誤：$e');
         _stopListening();
@@ -550,11 +545,72 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
     setState(() => _isListening = true);
   }
 
+  // 處理音量數據，針對iOS進行優化
+  void _processVolumeData(double newVolume) {
+    final now = DateTime.now();
+    final timeDiff = now.difference(_lastVolumeUpdate).inMilliseconds;
+    
+    // 根據平台調整音量處理策略
+    if (io.Platform.isIOS) {
+      // iOS 平台：增強響應速度和音量衰減
+      if (newVolume > _lastSignificantVolume || timeDiff > 100) {
+        // 如果音量增加或距離上次更新超過100ms，立即更新
+        _updateVolumeLevel(newVolume);
+        _lastSignificantVolume = newVolume;
+        _lastVolumeUpdate = now;
+        
+        // 取消之前的衰減定時器
+        _volumeDecayTimer?.cancel();
+        
+        // 設置新的衰減定時器，讓音量更快速下降
+        _volumeDecayTimer = Timer.periodic(
+          Duration(milliseconds: _volumeDecayDuration),
+          (timer) {
+            if (!_isListening) {
+              timer.cancel();
+              return;
+            }
+            
+            final decayedVolume = _soundLevel * _volumeDecayRate;
+            if (decayedVolume < 65.0) { // 底線音量
+              timer.cancel();
+              _updateVolumeLevel(65.0);
+            } else {
+              _updateVolumeLevel(decayedVolume);
+            }
+          }
+        );
+      }
+    } else {
+      // Android 平台：使用原有邏輯
+      _updateVolumeLevel(newVolume);
+    }
+  }
+
+  // 統一的音量更新方法
+  void _updateVolumeLevel(double volume) {
+    setState(() {
+      _soundLevel = volume;
+
+      if (_soundLevel > _dBThreshold) {
+        if (!_hasAddedWord) {
+          _wordCount++;
+          _hasAddedWord = true;
+        }
+        _animationController.forward(); // 氣泡放大
+      } else {
+        _hasAddedWord = false;
+        _animationController.reverse(); // 氣泡縮小
+      }
+    });
+  }
+
   void _stopListening() {
     _noiseSubscription?.cancel();
     _noiseSubscription = null;
     _noiseMeter = null;
     _countdownTimer?.cancel(); // 停止倒數
+    _volumeDecayTimer?.cancel(); // 停止音量衰減定時器
     setState(() {
       _isListening = false;
       _animationController.reverse(); // 測試停止時，氣泡恢復原狀
@@ -1027,6 +1083,7 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
     _noiseSubscription?.cancel();
     _animationController.dispose();
     _countdownTimer?.cancel();
+    _volumeDecayTimer?.cancel(); // 清理音量衰減定時器
     super.dispose();
   }
 }
