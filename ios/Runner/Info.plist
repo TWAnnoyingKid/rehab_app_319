@@ -84,5 +84,13 @@
 	<key>NSHealthUpdateUsageDescription</key>
 	<string>此應用程式需要寫入健康資料來記錄復健活動</string>
 	
+	<!-- 文件存取權限 -->
+	<key>NSDocumentsFolderUsageDescription</key>
+	<string>此應用程式需要存取文件夾來保存復健記錄和音頻檔案</string>
+	
+	<!-- 媒體庫權限 -->
+	<key>NSAppleMusicUsageDescription</key>
+	<string>此應用程式需要存取媒體庫來播放復健訓練音頻</string>
+	
 </dict>
 </plist>

@@ -33,6 +33,7 @@ class _IOSPermissionDebugWidgetState extends State<IOSPermissionDebugWidget> {
     List<Permission> permissions = [
       Permission.camera,
       Permission.microphone,
+      Permission.storage,
     ];
 
     Map<Permission, PermissionStatus> statuses = {};
@@ -91,7 +92,7 @@ class _IOSPermissionDebugWidgetState extends State<IOSPermissionDebugWidget> {
   Future<void> _forceRequestAllPermissions() async {
     _addLog('=== 開始強制請求所有權限 ===');
     
-    for (Permission permission in [Permission.camera, Permission.microphone]) {
+    for (Permission permission in [Permission.camera, Permission.microphone, Permission.storage]) {
       await _requestPermission(permission);
       // 在請求之間稍作延遲
       await Future.delayed(Duration(milliseconds: 500));
@@ -130,6 +131,8 @@ class _IOSPermissionDebugWidgetState extends State<IOSPermissionDebugWidget> {
         return '相機';
       case Permission.microphone:
         return '麥克風';
+      case Permission.storage:
+        return '儲存空間';
       default:
         return permission.toString();
     }
@@ -195,7 +198,11 @@ class _IOSPermissionDebugWidgetState extends State<IOSPermissionDebugWidget> {
                   return Card(
                     child: ListTile(
                       leading: Icon(
-                        permission == Permission.camera ? Icons.camera_alt : Icons.mic,
+                        permission == Permission.camera 
+                          ? Icons.camera_alt 
+                          : permission == Permission.microphone 
+                            ? Icons.mic 
+                            : Icons.storage,
                         color: _getStatusColor(status),
                       ),
                       title: Text(_getPermissionName(permission)),

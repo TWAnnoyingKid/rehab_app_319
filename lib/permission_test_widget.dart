@@ -19,6 +19,7 @@ class _PermissionTestWidgetState extends State<PermissionTestWidget> {
     List<Permission> permissions = [
       Permission.camera,
       Permission.microphone,
+      Permission.storage,
     ];
 
     Map<Permission, PermissionStatus> statuses = {};
@@ -86,6 +87,8 @@ class _PermissionTestWidgetState extends State<PermissionTestWidget> {
         return '相機';
       case Permission.microphone:
         return '麥克風';
+      case Permission.storage:
+        return '儲存空間';
       default:
         return permission.toString();
     }

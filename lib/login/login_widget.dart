@@ -106,7 +106,8 @@ class _LoginWidgetState extends State<LoginWidget> {
   Future<List<Permission>> _getMissingPermissions() async {
     List<Permission> allPermissions = [
       Permission.camera,              // 相機權限
-      Permission.microphone,          // 麥克風權限  
+      Permission.microphone,          // 麥克風權限（包含錄音）
+      Permission.storage,             // 儲存權限
     ];
 
     List<Permission> missingPermissions = [];
@@ -191,7 +192,8 @@ class _LoginWidgetState extends State<LoginWidget> {
                 ),
                 SizedBox(height: 16),
                 _permissionItem(Icons.camera_alt, '相機', '進行復健動作檢測和姿勢分析'),
-                _permissionItem(Icons.mic, '麥克風', '語音識別和RSST吞嚥測試'),
+                _permissionItem(Icons.mic, '麥克風', '錄音和語音識別功能'),
+                _permissionItem(Icons.storage, '儲存空間', '保存復健記錄和音頻檔案'),
                 SizedBox(height: 16),
                 Text(
                   '請在接下來的對話框中允許這些缺少的權限，以確保所有功能正常運作。',
@@ -247,8 +249,13 @@ class _LoginWidgetState extends State<LoginWidget> {
         break;
       case Permission.microphone:
         title = '麥克風權限';
-        description = '需要使用麥克風進行語音識別和RSST吞嚥功能測試。';
+        description = '需要使用麥克風進行錄音、語音識別和RSST吞嚥功能測試。';
         icon = Icons.mic;
+        break;
+      case Permission.storage:
+        title = '儲存權限';
+        description = '需要存取儲存空間來保存復健記錄、音頻檔案和進度資料。';
+        icon = Icons.storage;
         break;
       default:
         title = '權限請求';
@@ -298,6 +305,9 @@ class _LoginWidgetState extends State<LoginWidget> {
         break;
       case Permission.microphone:
         permissionName = '麥克風';
+        break;
+      case Permission.storage:
+        permissionName = '儲存空間';
         break;
       default:
         permissionName = permission.toString();
