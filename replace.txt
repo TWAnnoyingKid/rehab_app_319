@@ -4,11 +4,13 @@ import 'package:permission_handler/permission_handler.dart';
 import '../../trainmouth/trainmouth_widget.dart';
 import '../../main.dart';
 import 'package:http/http.dart' as http;
+import 'package:flutter/services.dart';
 import '../../flutter_flow/flutter_flow_util.dart';
-import 'dart:io';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:intl/intl.dart';
+import 'dart:io'; // 添加這個 import 來檢測平台
 import 'dart:math' as math;
-import 'dart:ui' as ui;
-import 'package:audio_streamer/audio_streamer.dart';
+import 'package:audio_streamer/audio_streamer.dart'; // 替換為 AudioStreamer
 
 /// **第一個畫面：讓使用者選擇 PA、TA、KA**
 class speech extends StatefulWidget {
@@ -470,23 +472,23 @@ class SoundDetectionScreen extends StatefulWidget {
 
 class _SoundDetectionScreenState extends State<SoundDetectionScreen>
     with SingleTickerProviderStateMixin {
-  // 音頻流相關
-  final AudioStreamer _audioStreamer = AudioStreamer();
+  AudioStreamer? _audioStreamer;
   bool _isListening = false;
+  double _currentAmplitude = 0.0;
   int _wordCount = 0;
   bool _hasAddedWord = false;
 
-  // 波形分析相關
-  List<double> _audioBuffer = [];
-  List<double> _waveformData = [];
-  double _currentAmplitude = 0.0;
-  double _energyThreshold = 0.1; // 能量閾值
-  int _lastDetectionTime = 0;
-  static const int _minSilenceDuration = 100; // 最小靜音間隔（毫秒）
+  // 平台特定的振幅閾值（0.0 到 1.0 之間）
+  double _amplitudeThreshold = Platform.isIOS ? 0.15 : 0.2;
 
   // 波形顯示相關
-  final int _maxWaveformPoints = 200; // 最大波形顯示點數
-  double _maxAmplitude = 0.0;
+  final List<double> _waveformData = [];
+  static const int maxWaveformPoints = 200; // 最大波形點數
+
+  // 峰值偵測相關
+  double _lastAmplitude = 0.0;
+  int _consecutiveLowSamples = 0;
+  static const int minLowSamplesForReset = 1; // 需要多少個低振幅樣本才重置偵測
 
   // 動畫控制
   late AnimationController _animationController;
@@ -499,31 +501,26 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
   @override
   void initState() {
     super.initState();
-    _initializePlatformSpecificSettings(); // 添加平台特定初始化
+    _initializePlatformSpecificSettings();
     _requestPermissions();
-
-    /// 請求麥克風權限
 
     // 動畫：讓氣泡變大縮小
     _animationController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 500), // 動畫時間 500ms
+      duration: const Duration(milliseconds: 500),
       lowerBound: 1.0,
-      upperBound: 2, // 放大 2 倍
+      upperBound: 2,
     );
     _scaleAnimation =
         Tween<double>(begin: 1.0, end: 1.3).animate(_animationController);
-
-    ///開始後大小
   }
 
   // 添加平台特定設置初始化
   void _initializePlatformSpecificSettings() {
     if (Platform.isIOS) {
-      print('iOS 平台：使用優化的音量閾值設定');
-      // iOS 可能需要更精確的調整
+      print('iOS 平台：使用優化的振幅閾值設定');
     } else {
-      print('Android 平台：使用標準音量閾值設定');
+      print('Android 平台：使用標準振幅閾值設定');
     }
   }
 
@@ -540,14 +537,63 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
     }
   }
 
+  // 處理音頻數據的回調函數
+  void _onAudioData(List<double> buffer) {
+    if (!_isListening) return;
+
+    // 計算當前緩衝區的最大振幅
+    double maxAmplitude = 0.0;
+    for (double sample in buffer) {
+      maxAmplitude = math.max(maxAmplitude, sample.abs());
+    }
+
+    setState(() {
+      _currentAmplitude = maxAmplitude;
+
+      // 更新波形數據
+      _waveformData.add(maxAmplitude);
+      if (_waveformData.length > maxWaveformPoints) {
+        _waveformData.removeAt(0); // 移除最舊的數據點
+      }
+
+      // 峰值偵測邏輯：檢測振幅突然增大的事件
+      if (maxAmplitude > _amplitudeThreshold) {
+        if (!_hasAddedWord && _consecutiveLowSamples >= minLowSamplesForReset) {
+          _wordCount++;
+          _hasAddedWord = true;
+          _consecutiveLowSamples = 0;
+          print(
+              '${Platform.isIOS ? "iOS" : "Android"} 偵測到音節，當前振幅: ${maxAmplitude.toStringAsFixed(3)}');
+        }
+        _animationController.forward(); // 氣泡放大
+      } else {
+        _consecutiveLowSamples++;
+        if (_consecutiveLowSamples >= minLowSamplesForReset) {
+          _hasAddedWord = false;
+        }
+        _animationController.reverse(); // 氣泡縮小
+      }
+
+      _lastAmplitude = maxAmplitude;
+    });
+  }
+
+  // 處理音頻錯誤的回調函數
+  void _onAudioError(dynamic error) {
+    debugPrint('音頻串流錯誤 (${Platform.isIOS ? "iOS" : "Android"}): $error');
+    _stopListening();
+  }
+
   void _startListening() {
     if (_isListening) return;
 
-    _resetValues(); // 重置計數與變數
+    _resetValues();
+    _audioStreamer ??= AudioStreamer();
 
     try {
-      // 使用AudioStreamer開始音頻流
-      _audioStreamer.start(_onAudioData, _onError);
+      // 開始音頻串流
+      _audioStreamer!.start(_onAudioData, _onAudioError,
+          sampleRate: Platform.isIOS ? 16000 : 44100);
 
       // 開始倒數計時
       _startCountdown();
@@ -557,82 +603,18 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
     }
 
     setState(() => _isListening = true);
-    print('開始波形偵測 - 平台: ${Platform.isIOS ? "iOS" : "Android"}');
+    print(
+        '開始振幅偵測 - 平台: ${Platform.isIOS ? "iOS" : "Android"}, 閾值: $_amplitudeThreshold');
   }
 
   void _stopListening() {
-    _audioStreamer.stop();
-    _countdownTimer?.cancel(); // 停止倒數
+    _audioStreamer?.stop();
+    _audioStreamer = null;
+    _countdownTimer?.cancel();
     setState(() {
       _isListening = false;
-      _animationController.reverse(); // 測試停止時，氣泡恢復原狀
+      _animationController.reverse();
     });
-  }
-
-  // 處理音頻數據
-  void _onAudioData(List<double> audioData) {
-    setState(() {
-      // 更新波形數據
-      _waveformData.addAll(audioData);
-      if (_waveformData.length > _maxWaveformPoints) {
-        _waveformData =
-            _waveformData.sublist(_waveformData.length - _maxWaveformPoints);
-      }
-
-      // 計算當前振幅
-      _currentAmplitude = _calculateAmplitude(audioData);
-
-      // 更新最大振幅（用於波形正規化）
-      if (_currentAmplitude > _maxAmplitude) {
-        _maxAmplitude = _currentAmplitude;
-      }
-
-      // 檢測斷續音
-      _detectSyllable(_currentAmplitude);
-    });
-  }
-
-  // 計算音頻振幅
-  double _calculateAmplitude(List<double> audioData) {
-    if (audioData.isEmpty) return 0.0;
-
-    // 計算RMS（均方根）振幅
-    double sum = 0.0;
-    for (double sample in audioData) {
-      sum += sample * sample;
-    }
-    return math.sqrt(sum / audioData.length);
-  }
-
-  // 檢測斷續音
-  void _detectSyllable(double amplitude) {
-    int currentTime = DateTime.now().millisecondsSinceEpoch;
-
-    // 檢查是否超過能量閾值且距離上次檢測有足夠間隔
-    if (amplitude > _energyThreshold) {
-      if (!_hasAddedWord &&
-          (currentTime - _lastDetectionTime) > _minSilenceDuration) {
-        _wordCount++;
-        _hasAddedWord = true;
-        _lastDetectionTime = currentTime;
-        _animationController.forward(); // 氣泡放大
-        print(
-            '${Platform.isIOS ? "iOS" : "Android"} 偵測到音節，當前振幅: ${amplitude.toStringAsFixed(4)}');
-      }
-    } else {
-      // 振幅低於閾值時重置狀態
-      if (amplitude < _energyThreshold * 0.3) {
-        // 使用較低的閾值來重置
-        _hasAddedWord = false;
-        _animationController.reverse(); // 氣泡縮小
-      }
-    }
-  }
-
-  // 處理音頻錯誤
-  void _onError(dynamic error) {
-    debugPrint('音頻流錯誤 (${Platform.isIOS ? "iOS" : "Android"}): $error');
-    _stopListening();
   }
 
   void _resetValues() {
@@ -640,11 +622,9 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
       _wordCount = 0;
       _currentAmplitude = 0.0;
       _hasAddedWord = false;
-      _remainingTime = 10; // 重置倒數
-      _audioBuffer.clear();
+      _remainingTime = 10;
       _waveformData.clear();
-      _maxAmplitude = 0.0;
-      _lastDetectionTime = 0;
+      _consecutiveLowSamples = minLowSamplesForReset;
     });
   }
 
@@ -666,9 +646,8 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
   // 完成測試，返回上一畫面
   void _finishTest() {
     _stopListening();
-    // 回調通知完成了測試並傳遞字數
     widget.onComplete(_wordCount);
-    Navigator.pop(context); // 返回上一畫面
+    Navigator.pop(context);
   }
 
   @override
@@ -684,33 +663,21 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
         iconTheme: const IconThemeData(color: Colors.black87),
       ),
       body: SafeArea(
-        child: Padding(
+        child: SingleChildScrollView(
+          // 添加滾動功能
           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
-          child: SingleChildScrollView(
-            child: ConstrainedBox(
-              constraints: BoxConstraints(
-                minHeight: MediaQuery.of(context).size.height -
-                    MediaQuery.of(context).padding.top -
-                    MediaQuery.of(context).padding.bottom -
-                    kToolbarHeight -
-                    40, // 減去 padding
-              ),
-              child: IntrinsicHeight(
-                child: Column(
-                  children: [
-                    _buildTopInfoPanel(),
-                    const SizedBox(height: 20),
-                    _buildAnimatedBubble(),
-                    const SizedBox(height: 15),
-                    _buildWaveformDisplay(),
-                    const SizedBox(height: 15),
-                    _buildThresholdSlider(),
-                    const Spacer(),
-                    _buildStartStopButton(),
-                  ],
-                ),
-              ),
-            ),
+          child: Column(
+            children: [
+              _buildTopInfoPanel(),
+              const SizedBox(height: 30),
+              _buildAnimatedBubble(),
+              const SizedBox(height: 30),
+              _buildWaveformDisplay(), // 新增波形顯示
+              const SizedBox(height: 20),
+              _buildThresholdSlider(),
+              const SizedBox(height: 20),
+              _buildStartStopButton(),
+            ],
           ),
         ),
       ),
@@ -788,7 +755,6 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
   // UI 組件：波形顯示
   Widget _buildWaveformDisplay() {
     return Container(
-      height: 100,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
@@ -805,38 +771,77 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Icon(Icons.graphic_eq, color: Colors.blue[600], size: 20),
-              const SizedBox(width: 8),
               Text(
-                "即時聲音波形",
-                style: TextStyle(
+                "即時音量波形 (${Platform.isIOS ? 'iOS' : 'Android'})",
+                style: const TextStyle(
                   fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.grey[800],
+                  fontWeight: FontWeight.w500,
+                  color: Colors.black87,
                 ),
               ),
-              const Spacer(),
               Text(
-                "${Platform.isIOS ? 'iOS' : 'Android'} 模式",
+                "振幅: ${(_currentAmplitude * 100).toInt()}%",
                 style: TextStyle(
-                  fontSize: 12,
-                  color: Colors.grey[500],
+                  fontSize: 14,
+                  fontWeight: _currentAmplitude > _amplitudeThreshold
+                      ? FontWeight.bold
+                      : FontWeight.normal,
+                  color: _currentAmplitude > _amplitudeThreshold
+                      ? Colors.green
+                      : Colors.black87,
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 12),
-          Expanded(
-            child: CustomPaint(
-              painter: WaveformPainter(
-                waveformData: _waveformData,
-                maxAmplitude: _maxAmplitude,
-                energyThreshold: _energyThreshold,
-                currentAmplitude: _currentAmplitude,
-              ),
-              size: Size.infinite,
+          const SizedBox(height: 10),
+          Container(
+            height: 100,
+            width: double.infinity,
+            decoration: BoxDecoration(
+              color: Colors.grey[50],
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.grey[300]!),
             ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: CustomPaint(
+                painter: WaveformPainter(
+                  waveformData: _waveformData,
+                  threshold: _amplitudeThreshold,
+                  currentAmplitude: _currentAmplitude,
+                ),
+                size: Size.infinite,
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          // 顯示閾值線說明
+          Row(
+            children: [
+              Container(
+                width: 12,
+                height: 2,
+                color: Colors.red.withOpacity(0.7),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                "偵測閾值線",
+                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+              ),
+              const Spacer(),
+              Container(
+                width: 12,
+                height: 2,
+                color: const Color(0xFF4A90E2),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                "振幅波形",
+                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+              ),
+            ],
           ),
         ],
       ),
@@ -1003,7 +1008,7 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  "偵測靈敏度 (${Platform.isIOS ? 'iOS' : 'Android'})",
+                  "振幅偵測閾值 (${Platform.isIOS ? 'iOS' : 'Android'})",
                   style: const TextStyle(
                       fontSize: 15,
                       fontWeight: FontWeight.w500,
@@ -1017,23 +1022,23 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
             ),
           ),
           const SizedBox(height: 4),
-          // 顯示當前即時振幅和平台資訊
+          // 顯示當前即時音量和平台資訊
           Column(
             children: [
               Text(
-                '當前振幅: ${(_currentAmplitude * 100).toStringAsFixed(1)}%',
+                '當前振幅: ${_currentAmplitude.toStringAsFixed(3)}',
                 style: TextStyle(
                   fontSize: 14,
-                  fontWeight: _currentAmplitude > _energyThreshold
+                  fontWeight: _currentAmplitude > _amplitudeThreshold
                       ? FontWeight.bold
                       : FontWeight.normal,
-                  color: _currentAmplitude > _energyThreshold
+                  color: _currentAmplitude > _amplitudeThreshold
                       ? Colors.green
                       : Colors.black87,
                 ),
               ),
               Text(
-                '平台建議範圍: ${Platform.isIOS ? "5-50" : "10-50"}%',
+                '平台建議範圍: ${Platform.isIOS ? "0.1-0.3" : "0.15-0.3"}',
                 style: TextStyle(fontSize: 12, color: Colors.grey[500]),
               ),
             ],
@@ -1051,20 +1056,20 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
               overlayShape: const RoundSliderOverlayShape(overlayRadius: 28.0),
             ),
             child: Slider(
-              value: _energyThreshold.clamp(
-                  Platform.isIOS ? 0.05 : 0.1, Platform.isIOS ? 0.5 : 0.5),
-              min: Platform.isIOS ? 0.05 : 0.1,
-              max: Platform.isIOS ? 0.5 : 0.5,
-              divisions: 20, // 20個刻度
-              label: '${(_energyThreshold * 100).toStringAsFixed(0)}%',
+              value: _amplitudeThreshold.clamp(
+                  Platform.isIOS ? 0.1 : 0.15, Platform.isIOS ? 0.3 : 0.3),
+              min: Platform.isIOS ? 0.1 : 0.15,
+              max: Platform.isIOS ? 0.3 : 0.3,
+              divisions: 10, // 每0.05一個刻度
+              label: _amplitudeThreshold.toStringAsFixed(2),
               onChanged: _isListening
                   ? null // 測試進行中不可調整
                   : (value) {
                       setState(() {
-                        ///更新 _energyThreshold 的數值
-                        _energyThreshold = value;
+                        ///更新 _amplitudeThreshold 的數值
+                        _amplitudeThreshold = value;
                         print(
-                            '調整能量閾值: ${(_energyThreshold * 100).toStringAsFixed(1)}% (${Platform.isIOS ? "iOS" : "Android"})');
+                            '調整振幅閾值: $_amplitudeThreshold (${Platform.isIOS ? "iOS" : "Android"})');
                       });
                     },
             ),
@@ -1077,10 +1082,82 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
   @override
   void dispose() {
     //取消動作
-    _audioStreamer.stop();
+    _audioStreamer?.stop();
     _animationController.dispose();
     _countdownTimer?.cancel();
     super.dispose();
+  }
+}
+
+/// 自定義波形繪製器
+class WaveformPainter extends CustomPainter {
+  final List<double> waveformData;
+  final double threshold;
+  final double currentAmplitude;
+
+  WaveformPainter({
+    required this.waveformData,
+    required this.threshold,
+    required this.currentAmplitude,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (waveformData.isEmpty) return;
+
+    final paint = Paint()
+      ..color = const Color(0xFF4A90E2)
+      ..strokeWidth = 1.5
+      ..style = PaintingStyle.stroke;
+
+    final thresholdPaint = Paint()
+      ..color = Colors.red.withOpacity(0.7)
+      ..strokeWidth = 1.0
+      ..style = PaintingStyle.stroke;
+
+    final path = Path();
+
+    // 計算每個點的水平間距
+    final double stepX = size.width / math.max(1, waveformData.length - 1);
+
+    // 繪製波形
+    for (int i = 0; i < waveformData.length; i++) {
+      final x = i * stepX;
+      final y = size.height - (waveformData[i] * size.height); // 反轉 Y 軸
+
+      if (i == 0) {
+        path.moveTo(x, y);
+      } else {
+        path.lineTo(x, y);
+      }
+    }
+
+    canvas.drawPath(path, paint);
+
+    // 繪製閾值線
+    final thresholdY = size.height - (threshold * size.height);
+    canvas.drawLine(
+      Offset(0, thresholdY),
+      Offset(size.width, thresholdY),
+      thresholdPaint,
+    );
+
+    // 如果當前振幅超過閾值，在最右側繪製高亮點
+    if (currentAmplitude > threshold && waveformData.isNotEmpty) {
+      final highlightPaint = Paint()
+        ..color = Colors.green
+        ..style = PaintingStyle.fill;
+
+      final lastX = (waveformData.length - 1) * stepX;
+      final lastY = size.height - (currentAmplitude * size.height);
+
+      canvas.drawCircle(Offset(lastX, lastY), 3.0, highlightPaint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) {
+    return true; // 總是重繪以顯示即時數據
   }
 }
 
@@ -1112,151 +1189,4 @@ Future<void> endout9({required Map<String, int> completedPhonemes}) async {
     print(responce.statusCode);
     print("no");
   }
-}
-
-// 波形繪製器
-class WaveformPainter extends CustomPainter {
-  final List<double> waveformData;
-  final double maxAmplitude;
-  final double energyThreshold;
-  final double currentAmplitude;
-
-  WaveformPainter({
-    required this.waveformData,
-    required this.maxAmplitude,
-    required this.energyThreshold,
-    required this.currentAmplitude,
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    if (waveformData.isEmpty) {
-      // 繪製靜音狀態
-      _drawSilentState(canvas, size);
-      return;
-    }
-
-    final paint = Paint()
-      ..color = Colors.blue[300]!
-      ..strokeWidth = 1.0
-      ..style = PaintingStyle.stroke;
-
-    final activePaint = Paint()
-      ..color =
-          currentAmplitude > energyThreshold ? Colors.green : Colors.blue[300]!
-      ..strokeWidth = 2.0
-      ..style = PaintingStyle.stroke;
-
-    final thresholdPaint = Paint()
-      ..color = Colors.red[300]!
-      ..strokeWidth = 1.0
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round;
-
-    final path = Path();
-    final activePath = Path();
-
-    // 繪製波形
-    for (int i = 0; i < waveformData.length; i++) {
-      final x = (i / waveformData.length) * size.width;
-      final normalizedAmplitude =
-          maxAmplitude > 0 ? waveformData[i] / maxAmplitude : 0.0;
-      final y = size.height / 2 - (normalizedAmplitude * size.height / 2);
-
-      if (i == 0) {
-        path.moveTo(x, y);
-        activePath.moveTo(x, y);
-      } else {
-        path.lineTo(x, y);
-        if (waveformData[i].abs() > energyThreshold) {
-          activePath.lineTo(x, y);
-        }
-      }
-    }
-
-    // 繪製背景波形
-    canvas.drawPath(path, paint);
-
-    // 繪製活躍波形
-    if (currentAmplitude > energyThreshold) {
-      canvas.drawPath(activePath, activePaint);
-    }
-
-    // 繪製閾值線
-    final thresholdY = size.height / 2 -
-        (energyThreshold / (maxAmplitude > 0 ? maxAmplitude : 1.0)) *
-            size.height /
-            2;
-    canvas.drawLine(
-      Offset(0, thresholdY),
-      Offset(size.width, thresholdY),
-      thresholdPaint,
-    );
-
-    // 繪製中心線
-    final centerPaint = Paint()
-      ..color = Colors.grey[400]!
-      ..strokeWidth = 0.5;
-    canvas.drawLine(
-      Offset(0, size.height / 2),
-      Offset(size.width, size.height / 2),
-      centerPaint,
-    );
-
-    // 顯示當前振幅指示器
-    if (currentAmplitude > 0) {
-      final indicatorPaint = Paint()
-        ..color =
-            currentAmplitude > energyThreshold ? Colors.green : Colors.blue
-        ..style = PaintingStyle.fill;
-
-      final indicatorRadius = currentAmplitude > energyThreshold ? 4.0 : 2.0;
-      canvas.drawCircle(
-        Offset(
-            size.width - 10,
-            size.height / 2 -
-                (currentAmplitude / (maxAmplitude > 0 ? maxAmplitude : 1.0)) *
-                    size.height /
-                    2),
-        indicatorRadius,
-        indicatorPaint,
-      );
-    }
-  }
-
-  void _drawSilentState(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = Colors.grey[300]!
-      ..strokeWidth = 1.0;
-
-    // 繪製平線表示靜音
-    canvas.drawLine(
-      Offset(0, size.height / 2),
-      Offset(size.width, size.height / 2),
-      paint,
-    );
-
-    // 添加文字提示
-    final textPainter = TextPainter(
-      text: const TextSpan(
-        text: '等待音頻信號...',
-        style: TextStyle(
-          color: Colors.grey,
-          fontSize: 12,
-        ),
-      ),
-      textDirection: ui.TextDirection.ltr,
-    );
-    textPainter.layout();
-    textPainter.paint(
-      canvas,
-      Offset(
-        (size.width - textPainter.width) / 2,
-        (size.height - textPainter.height) / 2,
-      ),
-    );
-  }
-
-  @override
-  bool shouldRepaint(CustomPainter oldDelegate) => true;
 }
