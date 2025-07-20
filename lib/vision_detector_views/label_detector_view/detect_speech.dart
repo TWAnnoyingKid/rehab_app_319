@@ -9,10 +9,7 @@ import 'package:flutter/services.dart';
 import '../../flutter_flow/flutter_flow_util.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:intl/intl.dart';
-import 'dart:io'; // 用於平台檢測
-
-// 將 enum 移至此處，成為頂層宣告
-enum DetectionState { IDLE, RISING, FALLING }
+import 'dart:io'; // 添加這個 import 來檢測平台
 
 /// **第一個畫面：讓使用者選擇 PA、TA、KA**
 class speech extends StatefulWidget {
@@ -474,68 +471,46 @@ class SoundDetectionScreen extends StatefulWidget {
 
 class _SoundDetectionScreenState extends State<SoundDetectionScreen>
     with SingleTickerProviderStateMixin {
-  // --- 原有變數 ---
   NoiseMeter? _noiseMeter;
   StreamSubscription<NoiseReading>? _noiseSubscription;
   bool _isListening = false;
   double _soundLevel = 0.0;
   int _wordCount = 0;
   bool _hasAddedWord = false;
-  double _dBThreshold = Platform.isIOS ? 75.0 : 80.0;
+
+  // 平台特定的音量閾值
+  double _dBThreshold = Platform.isIOS ? 75.0 : 80.0; // iOS 通常需要較低的閾值
+
+  // 動畫控制
   late AnimationController _animationController;
   late Animation<double> _scaleAnimation;
+
+  // 倒數計時
   Timer? _countdownTimer;
-  int _remainingTime = 10;
-
-  // --- iOS 原生通訊新增變數 ---
-  static const _methodChannel = MethodChannel('com.rehab_app.audio/method');
-  static const _eventChannel = EventChannel('com.rehab_app.audio/event');
-  StreamSubscription? _nativeAudioSubscription;
-
-  // --- 峰值檢測新增變數 ---
-  DetectionState _detectionState = DetectionState.IDLE;
-  double _lastSoundLevel = 0.0;
+  int _remainingTime = 10; // 設定倒數 10 秒
 
   @override
   void initState() {
     super.initState();
-    _initializePlatformSpecificSettings();
+    _initializePlatformSpecificSettings(); // 添加平台特定初始化
     _requestPermissions();
 
+    /// 請求麥克風權限
+
+    // 動畫：讓氣泡變大縮小
     _animationController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 500),
+      duration: const Duration(milliseconds: 500), // 動畫時間 500ms
       lowerBound: 1.0,
-      upperBound: 2,
+      upperBound: 2, // 放大 2 倍
     );
     _scaleAnimation =
         Tween<double>(begin: 1.0, end: 1.3).animate(_animationController);
 
-    // 如果是 iOS，設定事件通道監聽
-    if (Platform.isIOS) {
-      _setupNativeAudioListener();
-    }
+    ///開始後大小
   }
 
-  // 設定原生音訊監聽 (僅 iOS)
-  void _setupNativeAudioListener() {
-    _nativeAudioSubscription = _eventChannel.receiveBroadcastStream().listen(
-      (dynamic db) {
-        if (!_isListening) return;
-        setState(() {
-          // iOS 原生返回的 dB 值可能是負數，需要轉換
-          // 假設原生返回的是振幅，需要轉換為 dB，或者原生直接返回 dB
-          // 這裡我們假設原生已經處理好，直接返回一個正的 dB 值
-          _soundLevel = db as double;
-          _processAudioLevel();
-        });
-      },
-      onError: (dynamic error) {
-        debugPrint('iOS 原生音訊錯誤: ${error.message}');
-      },
-    );
-  }
-
+  // 添加平台特定設置初始化
   void _initializePlatformSpecificSettings() {
     if (Platform.isIOS) {
       print('iOS 平台：使用優化的音量閾值設定');
@@ -558,115 +533,65 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
     }
   }
 
-  // 統一的啟動按鈕入口
   void _startListening() {
     if (_isListening) return;
-    _resetValues();
 
-    if (Platform.isIOS) {
-      _startNativeListening();
-    } else {
-      _startNoiseMeterListening();
-    }
-
-    _startCountdown();
-    setState(() => _isListening = true);
-  }
-
-  // 統一的停止按鈕入口
-  void _stopListening() {
-    if (Platform.isIOS) {
-      _stopNativeListening();
-    } else {
-      _noiseSubscription?.cancel();
-    }
-    _noiseMeter = null;
-    _countdownTimer?.cancel();
-    setState(() {
-      _isListening = false;
-      _animationController.reverse();
-    });
-  }
-
-  // 原生 iOS 音訊啟動
-  void _startNativeListening() async {
-    try {
-      await _methodChannel.invokeMethod('start');
-      print("iOS 原生音訊監聽已啟動");
-    } catch (e) {
-      debugPrint("無法啟動 iOS 原生音訊: $e");
-    }
-  }
-
-  // 原生 iOS 音訊停止
-  void _stopNativeListening() async {
-    try {
-      await _methodChannel.invokeMethod('stop');
-      print("iOS 原生音訊監聽已停止");
-    } catch (e) {
-      debugPrint("無法停止 iOS 原生音訊: $e");
-    }
-  }
-
-  // 原有的 NoiseMeter 啟動邏輯 (僅 Android)
-  void _startNoiseMeterListening() {
+    _resetValues(); // 重置計數與變數
     _noiseMeter ??= NoiseMeter();
+
     try {
+      // 開始監聽音量
       _noiseSubscription = _noiseMeter!.noiseStream.listen((noiseEvent) {
         setState(() {
-          _soundLevel = noiseEvent.meanDecibel;
-          _processAudioLevel();
+          _soundLevel = noiseEvent.meanDecibel; //更新音量數據
+
+          if (_soundLevel > _dBThreshold) {
+            if (!_hasAddedWord) {
+              _wordCount++;
+              _hasAddedWord = true;
+              print(
+                  '${Platform.isIOS ? "iOS" : "Android"} 偵測到音節，當前音量: $_soundLevel dB');
+            }
+            _animationController.forward(); // 氣泡放大
+          } else {
+            _hasAddedWord = false;
+            _animationController.reverse(); // 氣泡縮小
+          }
         });
       }, onError: (e) {
-        debugPrint('Android NoiseMeter 錯誤: $e');
+        debugPrint('噪音偵測錯誤 (${Platform.isIOS ? "iOS" : "Android"}): $e');
         _stopListening();
       });
+
+      // 開始倒數計時
+      _startCountdown();
     } catch (e) {
-      debugPrint('啟動 Android NoiseMeter 時發生錯誤: $e');
+      debugPrint('啟動偵測時發生錯誤 (${Platform.isIOS ? "iOS" : "Android"}): $e');
       _stopListening();
     }
+
+    setState(() => _isListening = true);
+    print(
+        '開始音量偵測 - 平台: ${Platform.isIOS ? "iOS" : "Android"}, 閾值: $_dBThreshold dB');
   }
 
-  // 處理音量的核心邏輯 (峰值檢測)
-  void _processAudioLevel() {
-    switch (_detectionState) {
-      case DetectionState.IDLE:
-        if (_soundLevel > _dBThreshold) {
-          _detectionState = DetectionState.RISING;
-        }
-        break;
-
-      case DetectionState.RISING:
-        // 當音量開始下降時，視為一個波峰的結束
-        if (_soundLevel < _lastSoundLevel) {
-          _wordCount++;
-          _detectionState = DetectionState.FALLING;
-          // 觸發一次動畫
-          _animationController.forward().then((_) {
-            // 在動畫結束後，如果還在 FALLING 狀態，則恢復
-            if (_detectionState == DetectionState.FALLING) {
-              _animationController.reverse();
-            }
-          });
-        }
-        break;
-
-      case DetectionState.FALLING:
-        if (_soundLevel < _dBThreshold) {
-          _detectionState = DetectionState.IDLE;
-        }
-        break;
-    }
-    _lastSoundLevel = _soundLevel;
+  void _stopListening() {
+    _noiseSubscription?.cancel();
+    _noiseSubscription = null;
+    _noiseMeter = null;
+    _countdownTimer?.cancel(); // 停止倒數
+    setState(() {
+      _isListening = false;
+      _animationController.reverse(); // 測試停止時，氣泡恢復原狀
+    });
   }
 
   void _resetValues() {
     setState(() {
       _wordCount = 0;
       _soundLevel = 0.0;
-      _remainingTime = 10;
-      _detectionState = DetectionState.IDLE;
-      _lastSoundLevel = 0.0;
+      _hasAddedWord = false;
+      _remainingTime = 10; // 重置倒數
     });
   }
 
@@ -1027,13 +952,8 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
   void dispose() {
     //取消動作
     _noiseSubscription?.cancel();
-    _nativeAudioSubscription?.cancel(); // 取消原生監聽
     _animationController.dispose();
     _countdownTimer?.cancel();
-    // 如果仍在監聽，確保停止
-    if (_isListening) {
-      _stopListening();
-    }
     super.dispose();
   }
 }
