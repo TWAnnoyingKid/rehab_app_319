@@ -481,17 +481,13 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
   // 平台特定的音量閾值
   double _dBThreshold = Platform.isIOS ? 75.0 : 80.0; // iOS 通常需要較低的閾值
 
-  // 智慧音節偵測相關變數
-  List<double> _recentSoundLevels = []; // 記錄最近的音量
-  double _baselineVolume = 30.0; // 基線音量
-  int _silentSamples = 0; // 連續靜音樣本數
-  DateTime? _lastDetectionTime; // 最後偵測時間
-  final int _minSilenceGap = Platform.isIOS ? 8 : 5; // iOS 需要更多靜音樣本才算分隔
-  final Duration _minDetectionInterval =
-      Duration(milliseconds: Platform.isIOS ? 200 : 150); // iOS 需要更長間隔
-
-  // iOS 特殊調整參數
-  double _iosVolumeChangeThreshold = 10.0; // iOS 音量變化閾值 (可調整)
+  // 智能音節檢測相關變數
+  List<double> _volumeHistory = []; // 音量歷史記錄
+  int _maxHistoryLength = Platform.isIOS ? 15 : 10; // iOS需要更長的歷史記錄
+  DateTime? _lastSyllableTime; // 最後一次音節檢測時間
+  int _minSyllableInterval = Platform.isIOS ? 200 : 150; // 最小音節間隔(毫秒)
+  double _volumeDropThreshold = Platform.isIOS ? 15.0 : 10.0; // 音量下降閾值
+  bool _inSyllable = false; // 當前是否在音節中
 
   // 動畫控制
   late AnimationController _animationController;
@@ -525,12 +521,10 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
   // 添加平台特定設置初始化
   void _initializePlatformSpecificSettings() {
     if (Platform.isIOS) {
-      print('iOS 平台：使用智慧音節偵測算法');
-      // iOS 需要更大的音量歷史緩衝區
-      _recentSoundLevels = List.filled(15, 30.0);
+      print('iOS 平台：使用優化的音量閾值設定');
+      // iOS 可能需要更精確的調整
     } else {
-      print('Android 平台：使用標準音節偵測算法');
-      _recentSoundLevels = List.filled(8, 30.0);
+      print('Android 平台：使用標準音量閾值設定');
     }
   }
 
@@ -559,8 +553,8 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
         setState(() {
           _soundLevel = noiseEvent.meanDecibel; //更新音量數據
 
-          // 使用智慧偵測算法
-          _processSoundLevel(_soundLevel);
+          // 使用智能音節檢測
+          _detectSyllableIntelligent(_soundLevel);
         });
       }, onError: (e) {
         debugPrint('噪音偵測錯誤 (${Platform.isIOS ? "iOS" : "Android"}): $e');
@@ -579,96 +573,69 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
         '開始音量偵測 - 平台: ${Platform.isIOS ? "iOS" : "Android"}, 閾值: $_dBThreshold dB');
   }
 
-  // 智慧音節偵測核心算法
-  void _processSoundLevel(double currentLevel) {
+  // 智能音節檢測演算法
+  void _detectSyllableIntelligent(double currentVolume) {
     // 更新音量歷史
-    _recentSoundLevels.removeAt(0);
-    _recentSoundLevels.add(currentLevel);
-
-    // 更新基線音量（動態調整）
-    double avgLevel =
-        _recentSoundLevels.reduce((a, b) => a + b) / _recentSoundLevels.length;
-    _baselineVolume = _baselineVolume * 0.95 + avgLevel * 0.05;
-
-    bool isSpeaking = currentLevel > _dBThreshold;
-    bool wasSilent = _silentSamples > 0;
-
-    if (isSpeaking) {
-      _silentSamples = 0;
-
-      // 檢查是否應該計數新音節
-      if (_shouldCountNewSyllable()) {
-        _countNewSyllable(currentLevel);
-      }
-
-      // 觸發視覺回饋
-      if (!_animationController.isAnimating ||
-          _animationController.value < 0.5) {
-        _animationController.forward();
-      }
-    } else {
-      _silentSamples++;
-
-      // 如果靜音足夠長，重置偵測狀態
-      if (_silentSamples > _minSilenceGap && _animationController.value > 0.5) {
-        _animationController.reverse();
-      }
+    _volumeHistory.add(currentVolume);
+    if (_volumeHistory.length > _maxHistoryLength) {
+      _volumeHistory.removeAt(0);
     }
-  }
 
-  // 判斷是否應該計數新音節
-  bool _shouldCountNewSyllable() {
     DateTime now = DateTime.now();
 
-    // 檢查最小時間間隔
-    if (_lastDetectionTime != null) {
-      Duration timeSinceLastDetection = now.difference(_lastDetectionTime!);
-      if (timeSinceLastDetection < _minDetectionInterval) {
-        return false;
+    // 檢查是否有足夠的歷史數據
+    if (_volumeHistory.length < 3) return;
+
+    // 檢測音節開始
+    if (!_inSyllable && currentVolume > _dBThreshold) {
+      // 檢查時間間隔，避免重複計數
+      if (_lastSyllableTime == null ||
+          now.difference(_lastSyllableTime!).inMilliseconds >
+              _minSyllableInterval) {
+        _inSyllable = true;
+        _wordCount++;
+        _lastSyllableTime = now;
+        _animationController.forward(); // 氣泡放大
+
+        print(
+            '${Platform.isIOS ? "iOS" : "Android"} 智能檢測到音節 #$_wordCount，音量: ${currentVolume.toStringAsFixed(1)} dB');
       }
     }
 
-    // 檢查是否有足夠的靜音分隔
-    bool hadSufficientSilence =
-        _silentSamples >= _minSilenceGap || _lastDetectionTime == null;
+    // 檢測音節結束（針對iOS的特殊處理）
+    if (_inSyllable) {
+      bool syllableEnded = false;
 
-    // iOS 特殊邏輯：使用音量變化率作為額外判斷
-    if (Platform.isIOS && _recentSoundLevels.length >= 5) {
-      double recentIncrease = _calculateVolumeIncrease();
-      bool hasSignificantIncrease = recentIncrease > _iosVolumeChangeThreshold;
-      return hadSufficientSilence && hasSignificantIncrease;
+      if (Platform.isIOS) {
+        // iOS: 檢測音量下降趨勢或低於閾值
+        if (_volumeHistory.length >= 5) {
+          // 檢查最近幾個樣本的音量下降趨勢
+          double maxRecent = _volumeHistory
+              .sublist(_volumeHistory.length - 5)
+              .reduce((a, b) => a > b ? a : b);
+          double volumeDrop = maxRecent - currentVolume;
+
+          syllableEnded = currentVolume < _dBThreshold ||
+              volumeDrop > _volumeDropThreshold ||
+              now.difference(_lastSyllableTime!).inMilliseconds > 800; // 最大音節長度
+        }
+      } else {
+        // Android: 簡單的閾值檢測
+        syllableEnded = currentVolume < _dBThreshold;
+      }
+
+      if (syllableEnded) {
+        _inSyllable = false;
+        _animationController.reverse(); // 氣泡縮小
+        print(
+            '${Platform.isIOS ? "iOS" : "Android"} 音節結束，當前音量: ${currentVolume.toStringAsFixed(1)} dB');
+      }
     }
 
-    return hadSufficientSilence;
-  }
-
-  // 計算最近的音量增幅 (iOS 專用)
-  double _calculateVolumeIncrease() {
-    if (_recentSoundLevels.length < 5) return 0.0;
-
-    // 比較最近 3 個樣本與之前 3 個樣本的平均值
-    List<double> recent =
-        _recentSoundLevels.sublist(_recentSoundLevels.length - 3);
-    List<double> previous = _recentSoundLevels.sublist(
-        _recentSoundLevels.length - 6, _recentSoundLevels.length - 3);
-
-    double recentAvg = recent.reduce((a, b) => a + b) / recent.length;
-    double previousAvg = previous.reduce((a, b) => a + b) / previous.length;
-
-    return recentAvg - previousAvg;
-  }
-
-  // 計數新音節
-  void _countNewSyllable(double currentLevel) {
-    _wordCount++;
-    _lastDetectionTime = DateTime.now();
-    _silentSamples = 0; // 重置靜音計數
-
-    print(
-        '${Platform.isIOS ? "iOS" : "Android"} 偵測到音節 #$_wordCount，音量: ${currentLevel.toStringAsFixed(1)} dB');
-
-    // 觸發動畫
-    _animationController.forward();
+    // 如果不在音節中且音量低於閾值，確保動畫處於縮小狀態
+    if (!_inSyllable && currentVolume < _dBThreshold) {
+      _animationController.reverse();
+    }
   }
 
   void _stopListening() {
@@ -689,17 +656,12 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
       _hasAddedWord = false;
       _remainingTime = 10; // 重置倒數
 
-      // 重置智慧偵測變數
-      _silentSamples = 0;
-      _lastDetectionTime = null;
-      _baselineVolume = 30.0;
-      if (Platform.isIOS) {
-        _recentSoundLevels = List.filled(15, 30.0);
-        // 保持用戶調整的iOS閾值設定，不重置 _iosVolumeChangeThreshold
-      } else {
-        _recentSoundLevels = List.filled(8, 30.0);
-      }
+      // 重置智能檢測相關變數
+      _volumeHistory.clear();
+      _lastSyllableTime = null;
+      _inSyllable = false;
     });
+    print('重置檢測狀態 - 平台: ${Platform.isIOS ? "iOS" : "Android"}');
   }
 
   // **開始倒數計時**
@@ -725,6 +687,119 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
     Navigator.pop(context); // 返回上一畫面
   }
 
+  // 顯示檢測參數資訊對話框
+  void _showDetectionInfo() {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Row(
+            children: [
+              Icon(
+                Platform.isIOS ? Icons.phone_iphone : Icons.android,
+                color: Platform.isIOS ? Colors.grey[700] : Colors.green,
+              ),
+              const SizedBox(width: 8),
+              Text('${Platform.isIOS ? "iOS" : "Android"} 智能檢測參數'),
+            ],
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildInfoRow(
+                    '平台', Platform.isIOS ? 'iOS 增強模式' : 'Android 標準模式'),
+                _buildInfoRow('預設閾值', '${Platform.isIOS ? "75" : "80"} dB'),
+                _buildInfoRow(
+                    '音量範圍', '${Platform.isIOS ? "50-90" : "60-100"} dB'),
+                _buildInfoRow('歷史記錄長度', '${Platform.isIOS ? "15" : "10"} 個樣本'),
+                _buildInfoRow('最小音節間隔', '${Platform.isIOS ? "200" : "150"} 毫秒'),
+                _buildInfoRow('音量下降閾值', '${Platform.isIOS ? "15" : "10"} dB'),
+                const SizedBox(height: 16),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Platform.isIOS
+                        ? Colors.blue.withOpacity(0.1)
+                        : Colors.green.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        Platform.isIOS ? 'iOS 特殊處理：' : 'Android 標準處理：',
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 8),
+                      if (Platform.isIOS) ...[
+                        const Text('• 音量下降趨勢檢測',
+                            style: TextStyle(fontSize: 13)),
+                        const Text('• 延長的音量歷史記錄',
+                            style: TextStyle(fontSize: 13)),
+                        const Text('• 更長的音節間隔保護',
+                            style: TextStyle(fontSize: 13)),
+                        const Text('• 最大音節長度限制 (800ms)',
+                            style: TextStyle(fontSize: 13)),
+                      ] else ...[
+                        const Text('• 即時音量閾值檢測',
+                            style: TextStyle(fontSize: 13)),
+                        const Text('• 快速響應音量變化',
+                            style: TextStyle(fontSize: 13)),
+                        const Text('• 簡潔的檢測邏輯', style: TextStyle(fontSize: 13)),
+                      ],
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  '💡 提示：如果檢測不準確，請嘗試調整靈敏度滑桿',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.orange[700],
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('關閉'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  // 建立資訊列的輔助方法
+  Widget _buildInfoRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 80,
+            child: Text(
+              '$label：',
+              style: const TextStyle(fontWeight: FontWeight.w500),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: TextStyle(color: Colors.grey[700]),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -736,6 +811,14 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
         shadowColor: Colors.black.withOpacity(0.1),
         centerTitle: true,
         iconTheme: const IconThemeData(color: Colors.black87),
+        actions: [
+          // 添加資訊按鈕
+          IconButton(
+            icon: const Icon(Icons.info_outline, color: Colors.blue),
+            onPressed: _showDetectionInfo,
+            tooltip: '檢測參數說明',
+          ),
+        ],
       ),
       body: SafeArea(
         child: Padding(
@@ -748,11 +831,6 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
               const Spacer(),
               _buildThresholdSlider(),
               const SizedBox(height: 20),
-              // iOS 特殊調整滑桿
-              if (Platform.isIOS) ...[
-                _buildIOSAdjustmentSlider(),
-                const SizedBox(height: 15),
-              ],
               _buildStartStopButton(),
             ],
           ),
@@ -818,26 +896,13 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
         ),
         const SizedBox(height: 30),
         Text(
-          _isListening
-              ? (Platform.isIOS ? "請清晰發音並在音節間稍作停頓！" : "請對著麥克風大聲發音！")
-              : "點擊「開始測試」以進行錄音",
+          _isListening ? "請對著麥克風大聲發音！" : "點擊「開始測試」以進行錄音",
           style: TextStyle(
             fontSize: 18,
             color: Colors.grey[700],
             fontWeight: FontWeight.w500,
           ),
         ),
-        if (_isListening && Platform.isIOS) ...[
-          const SizedBox(height: 8),
-          Text(
-            "iOS 智慧偵測：會自動識別音節間的停頓",
-            style: TextStyle(
-              fontSize: 14,
-              color: Colors.blue[600],
-              fontStyle: FontStyle.italic,
-            ),
-          ),
-        ],
       ],
     );
   }
@@ -1031,20 +1096,54 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
                       : Colors.black87,
                 ),
               ),
-              if (Platform.isIOS && _recentSoundLevels.isNotEmpty) ...[
-                Text(
-                  '音量變化: ${_calculateVolumeIncrease().toStringAsFixed(1)} dB/樣本',
-                  style: TextStyle(fontSize: 11, color: Colors.blue[600]),
-                ),
-                Text(
-                  '靜音計數: $_silentSamples (需要 $_minSilenceGap)',
-                  style: TextStyle(fontSize: 11, color: Colors.orange[600]),
-                ),
-              ],
               Text(
                 '平台建議範圍: ${Platform.isIOS ? "50-90" : "60-100"} dB',
                 style: TextStyle(fontSize: 12, color: Colors.grey[500]),
               ),
+              // 添加智能檢測狀態顯示
+              if (_isListening) ...[
+                const SizedBox(height: 8),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: _inSyllable
+                        ? Colors.green.withOpacity(0.1)
+                        : Colors.grey.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(15),
+                    border: Border.all(
+                      color: _inSyllable ? Colors.green : Colors.grey,
+                      width: 1,
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        _inSyllable ? Icons.mic : Icons.mic_off,
+                        size: 16,
+                        color: _inSyllable ? Colors.green : Colors.grey,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        _inSyllable ? '檢測中...' : '待機中',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: _inSyllable
+                              ? Colors.green[700]
+                              : Colors.grey[600],
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '智能檢測 (${Platform.isIOS ? "iOS增強模式" : "Android標準模式"})',
+                  style: TextStyle(fontSize: 11, color: Colors.blue[600]),
+                ),
+              ],
             ],
           ),
           const SizedBox(height: 4),
@@ -1074,79 +1173,6 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
                         _dBThreshold = value;
                         print(
                             '調整音量閾值: $_dBThreshold dB (${Platform.isIOS ? "iOS" : "Android"})');
-                      });
-                    },
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // iOS 專用：音量變化靈敏度調整滑桿
-  Widget _buildIOSAdjustmentSlider() {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      decoration: BoxDecoration(
-        color: Colors.blue[50],
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.blue[200]!, width: 1),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text(
-                  "iOS 音節分離靈敏度",
-                  style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.blue),
-                ),
-                Text(
-                  _isListening ? "測試中無法調整" : "調整分離效果",
-                  style: TextStyle(fontSize: 12, color: Colors.blue[700]),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            '當前閾值: ${_iosVolumeChangeThreshold.toStringAsFixed(1)} dB',
-            style: TextStyle(fontSize: 13, color: Colors.blue[800]),
-          ),
-          Text(
-            '較低值: 更敏感 | 較高值: 更精確',
-            style: TextStyle(fontSize: 11, color: Colors.blue[600]),
-          ),
-          const SizedBox(height: 4),
-          SliderTheme(
-            data: SliderTheme.of(context).copyWith(
-              activeTrackColor: Colors.blue,
-              inactiveTrackColor: Colors.blue[100],
-              trackShape: const RoundedRectSliderTrackShape(),
-              trackHeight: 3.0,
-              thumbColor: Colors.blue,
-              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 10.0),
-              overlayColor: Colors.blue.withAlpha(32),
-              overlayShape: const RoundSliderOverlayShape(overlayRadius: 24.0),
-            ),
-            child: Slider(
-              value: _iosVolumeChangeThreshold.clamp(5.0, 20.0),
-              min: 5.0,
-              max: 20.0,
-              divisions: 15,
-              label: _iosVolumeChangeThreshold.toStringAsFixed(1),
-              onChanged: _isListening
-                  ? null
-                  : (value) {
-                      setState(() {
-                        _iosVolumeChangeThreshold = value;
-                        print('iOS 音量變化閾值調整為: $_iosVolumeChangeThreshold dB');
                       });
                     },
             ),
