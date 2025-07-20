@@ -1,14 +1,18 @@
 import 'dart:async';
-import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:noise_meter/noise_meter.dart';
+import 'package:audio_waveforms/audio_waveforms.dart'; // Android 使用
 import 'package:permission_handler/permission_handler.dart';
 import '../../trainmouth/trainmouth_widget.dart';
 import '../../main.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter/services.dart';
 import '../../flutter_flow/flutter_flow_util.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:intl/intl.dart';
+import 'dart:io'; // 添加這個 import 來檢測平台
+import 'dart:math'; // 添加數學運算
+import '../../services/native_audio_recorder.dart'; // iOS 原生錄音
+import '../../widgets/native_waveform_widget.dart'; // 自定義波形顯示
 
 /// **第一個畫面：讓使用者選擇 PA、TA、KA**
 class speech extends StatefulWidget {
@@ -470,18 +474,34 @@ class SoundDetectionScreen extends StatefulWidget {
 
 class _SoundDetectionScreenState extends State<SoundDetectionScreen>
     with SingleTickerProviderStateMixin {
-  NoiseMeter? _noiseMeter;
-  StreamSubscription<NoiseReading>? _noiseSubscription;
+  // 雙錄音器支持
+  late RecorderController _recorderController; // Android 使用
+  NativeAudioRecorder? _nativeRecorder; // iOS 使用
+
+  StreamSubscription<List<double>>? _waveSubscription; // Android 波形監聽
+  StreamSubscription<Map<String, double>>? _nativeAudioSubscription; // iOS 音頻監聽
+
   bool _isListening = false;
   double _soundLevel = 0.0;
   int _wordCount = 0;
   bool _hasAddedWord = false;
-  double _dBThreshold = 80.0;
 
-  // iOS 特殊處理變數
-  Timer? _iosResetTimer;
-  double _lastHighSoundLevel = 0.0;
-  DateTime? _lastSoundTime;
+  // 平台特定的波形閾值
+  double _amplitudeThreshold = Platform.isIOS ? 0.12 : 0.20; // iOS 原生錄音通常更敏感
+
+  // 波形數據
+  List<double> _waveformData = []; // 用於顯示的波形數據
+
+  // 波形數據分析相關（兩平台通用）
+  final List<double> _recentAmplitudes = [];
+  int _maxAmplitudeHistory = Platform.isIOS ? 5 : 10;
+  double _lastPeakTime = 0;
+  final double _minPeakInterval = Platform.isIOS ? 120 : 200; // iOS 原生可以更快
+
+  // iOS 特殊的平滑補償變量（現在不再需要，但保留以防萬一）
+  List<double> _amplitudeDeltas = [];
+  double _baselineAmplitude = 0.0;
+  int _consecutiveLowCount = 0;
 
   // 動畫控制
   late AnimationController _animationController;
@@ -489,26 +509,40 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
 
   // 倒數計時
   Timer? _countdownTimer;
-  int _remainingTime = 10; // 設定倒數 10 秒
+  int _remainingTime = 10;
 
   @override
   void initState() {
     super.initState();
+    _initializeRecorders(); // 初始化雙錄音器
     _requestPermissions();
 
-    /// 請求麥克風權限
-
-    // 動畫：讓氣泡變大縮小
+    // 動畫設置
     _animationController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 500), // 動畫時間 500ms
+      duration: const Duration(milliseconds: 300),
       lowerBound: 1.0,
-      upperBound: 2, // 放大 2 倍
+      upperBound: 2,
     );
     _scaleAnimation =
         Tween<double>(begin: 1.0, end: 1.3).animate(_animationController);
+  }
 
-    ///開始後大小
+  // 初始化雙錄音器
+  void _initializeRecorders() {
+    if (Platform.isIOS) {
+      // iOS 使用原生錄音器
+      _nativeRecorder = NativeAudioRecorder();
+      print('iOS 原生錄音器初始化完成');
+    } else {
+      // Android 使用 audio_waveforms
+      _recorderController = RecorderController()
+        ..androidEncoder = AndroidEncoder.aac
+        ..androidOutputFormat = AndroidOutputFormat.mpeg4
+        ..sampleRate = 16000
+        ..updateFrequency = const Duration(milliseconds: 50);
+      print('Android audio_waveforms 錄音器初始化完成');
+    }
   }
 
   Future<void> _requestPermissions() async {
@@ -516,119 +550,173 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
     if (!status.isGranted) {
       await Permission.microphone.request();
     }
+
+    // iOS 特殊處理：確保權限狀態穩定
+    if (Platform.isIOS && status.isGranted) {
+      await Future.delayed(const Duration(milliseconds: 300));
+      print('iOS 權限確認完成');
+    }
+
+    // 檢查錄音器權限（Android 才需要，iOS 在開始錄音時檢查）
+    if (!Platform.isIOS) {
+      bool hasPermission = await _recorderController.checkPermission();
+      print('Android 錄音器權限狀態: $hasPermission');
+    }
   }
 
-  void _startListening() {
+  void _startListening() async {
     if (_isListening) return;
 
     _resetValues(); // 重置計數與變數
-    _noiseMeter ??= NoiseMeter();
 
     try {
-      // 開始監聽音量
-      _noiseSubscription = _noiseMeter!.noiseStream.listen((noiseEvent) {
-        setState(() {
-          _soundLevel = noiseEvent.meanDecibel; //更新音量數據
+      // 開始錄音以獲取波形數據
+      if (Platform.isIOS) {
+        bool success = await _nativeRecorder?.startRecording() ?? false;
+        if (!success) {
+          throw Exception('iOS 原生錄音啟動失敗');
+        }
+      } else {
+        await _recorderController.record();
+      }
 
-          // 特殊處理 iOS 平台的音量檢測
-          if (Platform.isIOS) {
-            _handleIOSSoundDetection();
-          } else {
-            _handleAndroidSoundDetection();
+      // 監聽波形數據變化
+      if (Platform.isIOS) {
+        _nativeAudioSubscription =
+            _nativeRecorder?.audioLevelStream.listen((audioData) {
+          // 將 iOS 的音頻數據轉換為波形分析
+          double amplitude = audioData['normalizedPeak'] ?? 0.0;
+          _waveformData.add(amplitude);
+
+          // 限制波形數據長度
+          if (_waveformData.length > 100) {
+            _waveformData.removeAt(0);
           }
-        });
-      }, onError: (e) {
-        debugPrint('噪音偵測錯誤：$e');
-        _stopListening();
-      });
 
-      // 開始倒數計時
+          // 分析音頻數據來檢測音節
+          _analyzeAudioData(amplitude);
+        });
+      } else {
+        // Android 使用定時器檢查波形數據
+        _startWaveformAnalysis();
+      }
+
       _startCountdown();
+
+      setState(() => _isListening = true);
+      print(
+          '開始波形偵測 - 平台: ${Platform.isIOS ? "iOS 原生" : "Android audio_waveforms"}, 閾值: $_amplitudeThreshold');
     } catch (e) {
-      debugPrint('啟動偵測時發生錯誤：$e');
+      debugPrint('啟動波形偵測時發生錯誤 (${Platform.isIOS ? "iOS" : "Android"}): $e');
       _stopListening();
     }
-
-    setState(() => _isListening = true);
   }
 
-  void _stopListening() {
-    _noiseSubscription?.cancel();
-    _noiseSubscription = null;
-    _noiseMeter = null;
-    _countdownTimer?.cancel(); // 停止倒數
-    _iosResetTimer?.cancel(); // 停止 iOS 重置計時器
-    setState(() {
-      _isListening = false;
-      _animationController.reverse(); // 測試停止時，氣泡恢復原狀
+  // 開始波形分析（Android 專用）
+  void _startWaveformAnalysis() {
+    Timer.periodic(const Duration(milliseconds: 50), (timer) {
+      if (!_isListening) {
+        timer.cancel();
+        return;
+      }
+
+      // 獲取當前波形數據
+      List<double> waveData = _recorderController.waveData;
+      if (waveData.isNotEmpty) {
+        double currentAmplitude = waveData.last;
+        _waveformData.add(currentAmplitude);
+
+        // 限制波形數據長度
+        if (_waveformData.length > 100) {
+          _waveformData.removeAt(0);
+        }
+
+        _analyzeAudioData(currentAmplitude);
+      }
     });
   }
 
-  // iOS 平台的音量檢測處理
-  void _handleIOSSoundDetection() {
-    if (_soundLevel > _dBThreshold) {
-      if (!_hasAddedWord) {
-        _wordCount++;
-        _hasAddedWord = true;
-        _lastHighSoundLevel = _soundLevel;
-        _lastSoundTime = DateTime.now();
-      }
-      _animationController.forward(); // 氣泡放大
-      
-      // 重置 iOS 計時器
-      _iosResetTimer?.cancel();
-      _iosResetTimer = Timer(const Duration(milliseconds: 300), () {
-        // iOS 上強制重置檢測狀態，提高靈敏度
-        if (mounted) {
-          setState(() {
-            _hasAddedWord = false;
-          });
-          _animationController.reverse();
-        }
-      });
-    } else {
-      // 檢查是否從高音量快速下降 (iOS 特殊處理)
-      if (_lastSoundTime != null && 
-          DateTime.now().difference(_lastSoundTime!).inMilliseconds < 500 &&
-          _lastHighSoundLevel > _dBThreshold) {
-        // 如果在 500ms 內從高音量下降，考慮為一次有效發音的結束
-        _iosResetTimer?.cancel();
-        _iosResetTimer = Timer(const Duration(milliseconds: 200), () {
-          if (mounted) {
-            setState(() {
-              _hasAddedWord = false;
-            });
-            _animationController.reverse();
-          }
+  // 統一的音頻數據分析方法（iOS 和 Android 共用）
+  void _analyzeAudioData(double currentAmplitude) {
+    // 更新最近的振幅歷史
+    _recentAmplitudes.add(currentAmplitude);
+    if (_recentAmplitudes.length > _maxAmplitudeHistory) {
+      _recentAmplitudes.removeAt(0);
+    }
+
+    setState(() {
+      _soundLevel = currentAmplitude * 100; // 轉換為百分比顯示
+    });
+
+    // 使用簡化的峰值檢測（原生錄音已經沒有平滑處理問題）
+    bool isPeak = _detectPeakSimple(currentAmplitude);
+
+    if (isPeak) {
+      double currentTime = DateTime.now().millisecondsSinceEpoch.toDouble();
+
+      // 檢查是否超過最小間隔時間
+      if (currentTime - _lastPeakTime > _minPeakInterval) {
+        setState(() {
+          _wordCount++;
+          _lastPeakTime = currentTime;
         });
+
+        // 觸發動畫
+        _animationController.forward().then((_) {
+          _animationController.reverse();
+        });
+
+        print(
+            '${Platform.isIOS ? "iOS 原生" : "Android"} 偵測到音節 #$_wordCount，振幅: ${(currentAmplitude * 100).toStringAsFixed(1)}%');
       }
     }
   }
 
-  // Android 平台的音量檢測處理 (原始邏輯)
-  void _handleAndroidSoundDetection() {
-    if (_soundLevel > _dBThreshold) {
-      if (!_hasAddedWord) {
-        _wordCount++;
-        _hasAddedWord = true;
-      }
-      _animationController.forward(); // 氣泡放大
+  // 簡化的峰值檢測（適用於原生錄音）
+  bool _detectPeakSimple(double currentAmplitude) {
+    if (_recentAmplitudes.length < 2) return false;
+
+    // 簡單檢測：當前值大於閾值且大於前一個值
+    double previousAmplitude = _recentAmplitudes[_recentAmplitudes.length - 2];
+
+    return currentAmplitude > _amplitudeThreshold &&
+        currentAmplitude > previousAmplitude * 1.15; // 需要至少15%的增長
+  }
+
+  void _stopListening() async {
+    if (Platform.isIOS) {
+      await _nativeRecorder?.stopRecording();
+      _nativeAudioSubscription?.cancel();
     } else {
-      _hasAddedWord = false;
-      _animationController.reverse(); // 氣泡縮小
+      if (_recorderController.isRecording) {
+        await _recorderController.stop();
+      }
+      _waveSubscription?.cancel();
     }
+    _countdownTimer?.cancel();
+
+    setState(() {
+      _isListening = false;
+      _animationController.reverse();
+    });
+
+    print('停止波形偵測');
   }
 
   void _resetValues() {
     setState(() {
       _wordCount = 0;
       _soundLevel = 0.0;
-      _hasAddedWord = false;
-      _remainingTime = 10; // 重置倒數
-      _lastHighSoundLevel = 0.0;
-      _lastSoundTime = null;
+      _remainingTime = 10;
+      _recentAmplitudes.clear();
+      _lastPeakTime = 0;
+      _waveformData.clear(); // 清除波形數據
+
+      // 清理舊的平滑補償變量（現在不再需要但保留）
+      _amplitudeDeltas.clear();
+      _baselineAmplitude = 0.0;
+      _consecutiveLowCount = 0;
     });
-    _iosResetTimer?.cancel(); // 取消任何進行中的 iOS 計時器
   }
 
   // **開始倒數計時**
@@ -649,9 +737,8 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
   // 完成測試，返回上一畫面
   void _finishTest() {
     _stopListening();
-    // 回調通知完成了測試並傳遞字數
     widget.onComplete(_wordCount);
-    Navigator.pop(context); // 返回上一畫面
+    Navigator.pop(context);
   }
 
   @override
@@ -667,17 +754,21 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
         iconTheme: const IconThemeData(color: Colors.black87),
       ),
       body: SafeArea(
-        child: Padding(
+        child: SingleChildScrollView(
+          // 讓頁面可滾動
           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
           child: Column(
             children: [
               _buildTopInfoPanel(),
-              const Spacer(),
+              const SizedBox(height: 30),
               _buildAnimatedBubble(),
-              const Spacer(),
+              const SizedBox(height: 30),
+              _buildWaveformDisplay(), // 新增波形顯示
+              const SizedBox(height: 20),
               _buildThresholdSlider(),
               const SizedBox(height: 20),
               _buildStartStopButton(),
+              const SizedBox(height: 20), // 底部間距
             ],
           ),
         ),
@@ -750,6 +841,113 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
           ),
         ),
       ],
+    );
+  }
+
+  // 新增：波形顯示元件
+  Widget _buildWaveformDisplay() {
+    return Container(
+      height: Platform.isIOS ? 120 : 100,
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          )
+        ],
+      ),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.graphic_eq, color: Colors.blue[600], size: 20),
+              const SizedBox(width: 8),
+              Text(
+                Platform.isIOS
+                    ? "即時波形 (iOS 原生 AVAudioRecorder)"
+                    : "即時波形 (Android Audio Waveforms)",
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w500,
+                  color: Colors.black87,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Expanded(
+            child: _isListening
+                ? Column(
+                    children: [
+                      Expanded(
+                        child: Platform.isIOS
+                            ? NativeWaveformWidget(
+                                waveformData: _waveformData,
+                                height: Platform.isIOS ? 50 : 60,
+                                width: MediaQuery.of(context).size.width - 80,
+                                waveColor: Colors.blue[400]!,
+                                backgroundColor: Colors.grey[50]!,
+                                strokeWidth: 3,
+                                showMiddleLine: false,
+                                maxPoints: 50,
+                              )
+                            : AudioWaveforms(
+                                enableGesture: false,
+                                size: Size(
+                                    MediaQuery.of(context).size.width - 80, 60),
+                                recorderController: _recorderController,
+                                waveStyle: WaveStyle(
+                                  waveColor: Colors.green[400]!,
+                                  extendWaveform: true,
+                                  showMiddleLine: false,
+                                  waveThickness: 3,
+                                ),
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(8),
+                                  color: Colors.grey[50],
+                                ),
+                              ),
+                      ),
+                      // iOS 特定的調試信息（簡化版本）
+                      if (Platform.isIOS && _isListening) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          '原生錄音狀態: ${_nativeRecorder?.isRecording == true ? "活躍" : "待機"} | 數據點: ${_waveformData.length}',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.blue[700],
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ],
+                  )
+                : Container(
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(8),
+                      color: Colors.grey[100],
+                    ),
+                    child: Center(
+                      child: Text(
+                        Platform.isIOS
+                            ? "點擊開始測試以顯示 iOS 原生波形"
+                            : "點擊開始測試以顯示 Android 波形",
+                        style: TextStyle(
+                          color: Colors.grey[600],
+                          fontSize: 14,
+                        ),
+                      ),
+                    ),
+                  ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -912,9 +1110,9 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text(
-                  "偵測靈敏度",
-                  style: TextStyle(
+                Text(
+                  "偵測靈敏度 (${Platform.isIOS ? 'iOS' : 'Android'})",
+                  style: const TextStyle(
                       fontSize: 15,
                       fontWeight: FontWeight.w500,
                       color: Colors.black87),
@@ -926,99 +1124,31 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
               ],
             ),
           ),
-          // 顯示當前音量和門檻值
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 8.0),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  "當前音量: ${_soundLevel.toStringAsFixed(1)} dB",
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: _soundLevel > _dBThreshold ? FontWeight.bold : FontWeight.normal,
-                    color: _soundLevel > _dBThreshold ? Colors.green[700] : Colors.grey[700],
-                  ),
+          const SizedBox(height: 4),
+          // 顯示當前即時音量和平台資訊
+          Column(
+            children: [
+              Text(
+                '當前波形強度: ${_soundLevel.toStringAsFixed(1)}%',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: _soundLevel > _amplitudeThreshold * 100
+                      ? FontWeight.bold
+                      : FontWeight.normal,
+                  color: _soundLevel > _amplitudeThreshold * 100
+                      ? Colors.green
+                      : Colors.black87,
                 ),
-                Text(
-                  "門檻: ${_dBThreshold.toStringAsFixed(0)} dB",
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                    color: Colors.blue[700],
-                  ),
-                ),
-              ],
-            ),
-          ),
-          // 音量進度條
-          if (_isListening)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
-              child: Column(
-                children: [
-                  Row(
-                    children: [
-                      Text(
-                        "60",
-                        style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                      ),
-                      Expanded(
-                        child: Container(
-                          margin: const EdgeInsets.symmetric(horizontal: 8),
-                          height: 6,
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(3),
-                            color: Colors.grey[200],
-                          ),
-                          child: Stack(
-                            children: [
-                              // 音量進度條
-                              FractionallySizedBox(
-                                widthFactor: ((_soundLevel - 60) / 40).clamp(0.0, 1.0),
-                                child: Container(
-                                  decoration: BoxDecoration(
-                                    borderRadius: BorderRadius.circular(3),
-                                    color: _soundLevel > _dBThreshold 
-                                        ? Colors.green[500] 
-                                        : Colors.orange[500],
-                                  ),
-                                ),
-                              ),
-                              // 門檻線
-                              FractionallySizedBox(
-                                widthFactor: (_dBThreshold - 60) / 40,
-                                child: Container(
-                                  alignment: Alignment.centerRight,
-                                  child: Container(
-                                    width: 2,
-                                    height: 6,
-                                    color: Colors.blue[700],
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      Text(
-                        "100",
-                        style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    _soundLevel > _dBThreshold ? "✓ 已觸發偵測" : "等待聲音輸入",
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: _soundLevel > _dBThreshold ? FontWeight.bold : FontWeight.normal,
-                      color: _soundLevel > _dBThreshold ? Colors.green[700] : Colors.grey[600],
-                    ),
-                  ),
-                ],
               ),
-            ),
+              Text(
+                Platform.isIOS
+                    ? '平台建議範圍: 5-30% (iOS 原生錄音)'
+                    : '平台建議範圍: 6-40% (Android)',
+                style: TextStyle(fontSize: 12, color: Colors.grey[500]),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
           SliderTheme(
             data: SliderTheme.of(context).copyWith(
               activeTrackColor: const Color(0xFF4A90E2),
@@ -1030,51 +1160,23 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
               overlayColor: const Color(0xFF4A90E2).withAlpha(32),
               overlayShape: const RoundSliderOverlayShape(overlayRadius: 28.0),
             ),
-            child: Stack(
-              children: [
-                // 主要的門檻值滑桿
-                Slider(
-                  value: _dBThreshold,
-                  min: 60,
-                  max: 100,
-                  divisions: 40, // 將範圍切成 40 份
-                  label: _dBThreshold.toStringAsFixed(0),
-                  onChanged: _isListening
-                      ? null // 測試進行中不可調整
-                      : (value) {
-                          setState(() {
-                            ///更新 _dBThreshold 的數值
-                            _dBThreshold = value;
-                          });
-                        },
-                ),
-                // 當前音量指示器
-                if (_isListening && _soundLevel >= 60 && _soundLevel <= 100)
-                  Positioned.fill(
-                    child: IgnorePointer(
-                      child: SliderTheme(
-                        data: SliderTheme.of(context).copyWith(
-                          trackHeight: 2.0,
-                          thumbColor: _soundLevel > _dBThreshold 
-                              ? Colors.green[600] 
-                              : Colors.orange[600],
-                          thumbShape: RoundSliderThumbShape(
-                            enabledThumbRadius: _soundLevel > _dBThreshold ? 10.0 : 8.0,
-                          ),
-                          activeTrackColor: Colors.transparent,
-                          inactiveTrackColor: Colors.transparent,
-                          overlayShape: SliderComponentShape.noOverlay,
-                        ),
-                        child: Slider(
-                          value: _soundLevel.clamp(60.0, 100.0),
-                          min: 60,
-                          max: 100,
-                          onChanged: null, // 只用於顯示，不可互動
-                        ),
-                      ),
-                    ),
-                  ),
-              ],
+            child: Slider(
+              value: _amplitudeThreshold.clamp(
+                  Platform.isIOS ? 0.05 : 0.06, Platform.isIOS ? 0.30 : 0.40),
+              min: Platform.isIOS ? 0.05 : 0.06,
+              max: Platform.isIOS ? 0.30 : 0.40,
+              divisions: 25, // 每0.01一個刻度
+              label: '${(_amplitudeThreshold * 100).toStringAsFixed(0)}%',
+              onChanged: _isListening
+                  ? null // 測試進行中不可調整
+                  : (value) {
+                      setState(() {
+                        ///更新 _amplitudeThreshold 的數值
+                        _amplitudeThreshold = value;
+                        print(
+                            '調整偵測靈敏度: $_amplitudeThreshold (${Platform.isIOS ? "iOS" : "Android"})');
+                      });
+                    },
             ),
           ),
         ],
@@ -1085,10 +1187,15 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
   @override
   void dispose() {
     //取消動作
-    _noiseSubscription?.cancel();
+    _waveSubscription?.cancel();
+    _nativeAudioSubscription?.cancel(); // 釋放 iOS 原生錄音監聽
+    if (Platform.isIOS) {
+      _nativeRecorder?.dispose(); // 釋放 iOS 原生錄音器資源
+    } else {
+      _recorderController.dispose(); // 釋放 Android audio_waveforms 錄音器資源
+    }
     _animationController.dispose();
     _countdownTimer?.cancel();
-    _iosResetTimer?.cancel(); // 清理 iOS 計時器
     super.dispose();
   }
 }

@@ -253,11 +253,11 @@ class _RsstIntroPageState extends State<RsstIntroPage> {
     if (!Platform.isIOS) return;
 
     print('=== 開始 iOS 錄音測試 ===');
-    
+
     try {
       // 創建測試錄音器
       AudioRecorder testRecorder = AudioRecorder();
-      
+
       // 顯示測試對話框
       showDialog(
         context: context,
@@ -301,7 +301,7 @@ class _RsstIntroPageState extends State<RsstIntroPage> {
       // 關閉測試對話框
       if (mounted) {
         Navigator.of(context).pop();
-        
+
         // 顯示成功訊息
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -315,11 +315,11 @@ class _RsstIntroPageState extends State<RsstIntroPage> {
       print('=== iOS 錄音測試完成：成功 ===');
     } catch (e) {
       print('❌ iOS 錄音測試失敗: $e');
-      
+
       // 關閉測試對話框
       if (mounted) {
         Navigator.of(context).pop();
-        
+
         // 顯示錯誤訊息
         showDialog(
           context: context,
@@ -375,7 +375,7 @@ class _RsstIntroPageState extends State<RsstIntroPage> {
           },
         );
       }
-      
+
       print('=== iOS 錄音測試完成：失敗 ===');
     }
   }
@@ -600,7 +600,8 @@ class _RsstIntroPageState extends State<RsstIntroPage> {
                         ),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.orange,
-                          padding: EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                          padding: EdgeInsets.symmetric(
+                              horizontal: 20, vertical: 10),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(20),
                           ),
@@ -610,7 +611,6 @@ class _RsstIntroPageState extends State<RsstIntroPage> {
                       ),
                     ),
 
-                  /*
                   //上傳音檔按鈕 測試模型用 部屬時刪除
                   Padding(
                     padding: EdgeInsetsDirectional.fromSTEB(0, 0, 0, 30),
@@ -622,7 +622,8 @@ class _RsstIntroPageState extends State<RsstIntroPage> {
                       ),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Color(0xFF2E5AAC),
-                        padding: EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+                        padding:
+                            EdgeInsets.symmetric(horizontal: 20, vertical: 15),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(20),
                         ),
@@ -631,7 +632,6 @@ class _RsstIntroPageState extends State<RsstIntroPage> {
                       onPressed: _isUploading ? null : _uploadAudioFile,
                     ),
                   ).animate().fade(duration: 500.ms, delay: 200.ms),
-
 
                   // 上傳進度指示器
                   if (_isUploading)
@@ -651,8 +651,6 @@ class _RsstIntroPageState extends State<RsstIntroPage> {
                         ],
                       ),
                     ),
-
-                    */
                 ],
               ),
             ),
