@@ -481,6 +481,11 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
   // 平台特定的音量閾值
   double _dBThreshold = Platform.isIOS ? 75.0 : 80.0; // iOS 通常需要較低的閾值
 
+  // iOS 特殊處理：音量變化檢測
+  double _previousSoundLevel = 0.0;
+  int _lastWordTime = 0; // 記錄最後一次計數的時間
+  late final int _minIntervalMs; // 平台特定的最小間隔時間
+
   // 動畫控制
   late AnimationController _animationController;
   late Animation<double> _scaleAnimation;
@@ -512,8 +517,11 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
 
   // 添加平台特定設置初始化
   void _initializePlatformSpecificSettings() {
+    // 設定平台特定的最小間隔時間
+    _minIntervalMs = Platform.isIOS ? 150 : 100; // iOS 需要較短間隔來處理音量下降慢的問題
+
     if (Platform.isIOS) {
-      print('iOS 平台：使用優化的音量閾值設定');
+      print('iOS 平台：使用優化的音量閾值設定和快速重置邏輯');
       // iOS 可能需要更精確的調整
     } else {
       print('Android 平台：使用標準音量閾值設定');
@@ -545,18 +553,21 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
         setState(() {
           _soundLevel = noiseEvent.meanDecibel; //更新音量數據
 
+          // 平台特定的音節檢測邏輯
           if (_soundLevel > _dBThreshold) {
-            if (!_hasAddedWord) {
-              _wordCount++;
-              _hasAddedWord = true;
-              print(
-                  '${Platform.isIOS ? "iOS" : "Android"} 偵測到音節，當前音量: $_soundLevel dB');
-            }
+            _checkForNewWord();
             _animationController.forward(); // 氣泡放大
           } else {
-            _hasAddedWord = false;
+            // iOS 特殊處理：檢查音量是否有顯著下降
+            if (Platform.isIOS && _hasAddedWord) {
+              _checkVolumeDropForIOS();
+            } else {
+              _hasAddedWord = false;
+            }
             _animationController.reverse(); // 氣泡縮小
           }
+
+          _previousSoundLevel = _soundLevel; // 更新前一次的音量
         });
       }, onError: (e) {
         debugPrint('噪音偵測錯誤 (${Platform.isIOS ? "iOS" : "Android"}): $e');
@@ -592,7 +603,35 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
       _soundLevel = 0.0;
       _hasAddedWord = false;
       _remainingTime = 10; // 重置倒數
+      _previousSoundLevel = 0.0;
+      _lastWordTime = 0;
     });
+  }
+
+  // 檢查是否為新的音節
+  void _checkForNewWord() {
+    final currentTime = DateTime.now().millisecondsSinceEpoch;
+
+    if (!_hasAddedWord || (currentTime - _lastWordTime) >= _minIntervalMs) {
+      _wordCount++;
+      _hasAddedWord = true;
+      _lastWordTime = currentTime;
+      print(
+          '${Platform.isIOS ? "iOS" : "Android"} 偵測到音節，當前音量: $_soundLevel dB，間隔: ${currentTime - _lastWordTime}ms');
+    }
+  }
+
+  // iOS 特殊處理：檢查音量下降來重置狀態
+  void _checkVolumeDropForIOS() {
+    // 如果音量相對於前一次有顯著下降（超過5dB），或者距離上次計數已超過最小間隔
+    final currentTime = DateTime.now().millisecondsSinceEpoch;
+    final volumeDrop = _previousSoundLevel - _soundLevel;
+
+    if (volumeDrop > 5.0 || (currentTime - _lastWordTime) >= _minIntervalMs) {
+      _hasAddedWord = false;
+      print(
+          'iOS 音量下降重置，音量降幅: ${volumeDrop.toStringAsFixed(1)}dB，間隔: ${currentTime - _lastWordTime}ms');
+    }
   }
 
   // **開始倒數計時**
