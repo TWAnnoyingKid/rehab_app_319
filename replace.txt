@@ -686,18 +686,31 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
-          child: Column(
-            children: [
-              _buildTopInfoPanel(),
-              const Spacer(),
-              _buildAnimatedBubble(),
-              const SizedBox(height: 20),
-              _buildWaveformDisplay(),
-              const Spacer(),
-              _buildThresholdSlider(),
-              const SizedBox(height: 20),
-              _buildStartStopButton(),
-            ],
+          child: SingleChildScrollView(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                minHeight: MediaQuery.of(context).size.height -
+                    MediaQuery.of(context).padding.top -
+                    MediaQuery.of(context).padding.bottom -
+                    kToolbarHeight -
+                    40, // 減去 padding
+              ),
+              child: IntrinsicHeight(
+                child: Column(
+                  children: [
+                    _buildTopInfoPanel(),
+                    const SizedBox(height: 20),
+                    _buildAnimatedBubble(),
+                    const SizedBox(height: 15),
+                    _buildWaveformDisplay(),
+                    const SizedBox(height: 15),
+                    _buildThresholdSlider(),
+                    const Spacer(),
+                    _buildStartStopButton(),
+                  ],
+                ),
+              ),
+            ),
           ),
         ),
       ),
@@ -775,7 +788,7 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
   // UI 組件：波形顯示
   Widget _buildWaveformDisplay() {
     return Container(
-      height: 120,
+      height: 100,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
