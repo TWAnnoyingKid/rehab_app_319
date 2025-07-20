@@ -481,13 +481,12 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
   // 平台特定的音量閾值
   double _dBThreshold = Platform.isIOS ? 75.0 : 80.0; // iOS 通常需要較低的閾值
 
-  // 智能音節檢測相關變數
-  List<double> _volumeHistory = []; // 音量歷史記錄
-  int _maxHistoryLength = Platform.isIOS ? 15 : 10; // iOS需要更長的歷史記錄
-  DateTime? _lastSyllableTime; // 最後一次音節檢測時間
-  int _minSyllableInterval = Platform.isIOS ? 200 : 150; // 最小音節間隔(毫秒)
-  double _volumeDropThreshold = Platform.isIOS ? 15.0 : 10.0; // 音量下降閾值
-  bool _inSyllable = false; // 當前是否在音節中
+  // iOS AGC 補償演算法變數
+  List<double> _soundLevelHistory = []; // 音量歷史記錄
+  double _lastPeakTime = 0; // 上次峰值時間
+  double _minSilenceDuration = Platform.isIOS ? 200 : 150; // iOS 需要更長的靜音間隔 (毫秒)
+  double _peakDecayThreshold = Platform.isIOS ? 0.7 : 0.8; // iOS 峰值衰減閾值
+  int _historyWindowSize = Platform.isIOS ? 20 : 10; // iOS 需要更大的歷史窗口
 
   // 動畫控制
   late AnimationController _animationController;
@@ -521,11 +520,75 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
   // 添加平台特定設置初始化
   void _initializePlatformSpecificSettings() {
     if (Platform.isIOS) {
-      print('iOS 平台：使用優化的音量閾值設定');
+      print('iOS 平台：使用 AGC 補償的音量閾值設定');
+      print('iOS 設定：靜音間隔 ${_minSilenceDuration}ms，峰值衰減閾值 $_peakDecayThreshold');
       // iOS 可能需要更精確的調整
     } else {
       print('Android 平台：使用標準音量閾值設定');
     }
+  }
+
+  // iOS AGC 補償的音節偵測演算法
+  bool _detectSyllableWithAGCCompensation(double currentLevel) {
+    final currentTime = DateTime.now().millisecondsSinceEpoch.toDouble();
+
+    // 將當前音量添加到歷史記錄
+    _soundLevelHistory.add(currentLevel);
+    if (_soundLevelHistory.length > _historyWindowSize) {
+      _soundLevelHistory.removeAt(0);
+    }
+
+    // 如果歷史記錄不足，返回 false
+    if (_soundLevelHistory.length < 3) return false;
+
+    // 計算音量變化梯度和趨勢
+    double recentAverage = _soundLevelHistory
+            .sublist(_soundLevelHistory.length - 3)
+            .reduce((a, b) => a + b) /
+        3;
+    double previousAverage = _soundLevelHistory.length >= 6
+        ? _soundLevelHistory
+                .sublist(_soundLevelHistory.length - 6,
+                    _soundLevelHistory.length - 3)
+                .reduce((a, b) => a + b) /
+            3
+        : recentAverage;
+
+    bool hasSignificantIncrease =
+        recentAverage > (previousAverage + 5); // 音量顯著增加
+    bool isAboveThreshold = currentLevel > _dBThreshold;
+    bool hasEnoughSilence = (currentTime - _lastPeakTime) > _minSilenceDuration;
+
+    if (Platform.isIOS) {
+      // iOS 特殊處理：檢查峰值後的衰減模式
+      if (_soundLevelHistory.length >= 5) {
+        double maxRecent = _soundLevelHistory
+            .sublist(_soundLevelHistory.length - 5)
+            .reduce((a, b) => a > b ? a : b);
+        bool isDecaying = currentLevel < (maxRecent * _peakDecayThreshold);
+
+        // iOS AGC 補償：如果檢測到峰值衰減模式，認為是音節結束
+        if (isDecaying && hasEnoughSilence && maxRecent > _dBThreshold) {
+          print(
+              'iOS AGC 補償：偵測到峰值衰減模式，音量從 ${maxRecent.toStringAsFixed(1)} 衰減到 ${currentLevel.toStringAsFixed(1)}');
+          return true;
+        }
+      }
+
+      // iOS 備用偵測：基於音量增加梯度
+      if (hasSignificantIncrease && isAboveThreshold && hasEnoughSilence) {
+        print(
+            'iOS 梯度偵測：音量從 ${previousAverage.toStringAsFixed(1)} 增加到 ${recentAverage.toStringAsFixed(1)}');
+        return true;
+      }
+    } else {
+      // Android 標準偵測
+      if (isAboveThreshold && hasEnoughSilence) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   Future<void> _requestPermissions() async {
@@ -553,8 +616,52 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
         setState(() {
           _soundLevel = noiseEvent.meanDecibel; //更新音量數據
 
-          // 使用智能音節檢測
-          _detectSyllableIntelligent(_soundLevel);
+          // 使用平台特定的音節偵測演算法
+          if (Platform.isIOS) {
+            // iOS：使用 AGC 補償演算法
+            if (_detectSyllableWithAGCCompensation(_soundLevel)) {
+              if (!_hasAddedWord) {
+                _wordCount++;
+                _hasAddedWord = true;
+                _lastPeakTime =
+                    DateTime.now().millisecondsSinceEpoch.toDouble();
+                print('iOS AGC 補償偵測到音節 #$_wordCount，當前音量: $_soundLevel dB');
+                _animationController.forward(); // 氣泡放大
+
+                // iOS：設定較長的冷卻時間
+                Future.delayed(
+                    Duration(milliseconds: _minSilenceDuration.toInt()), () {
+                  _hasAddedWord = false;
+                });
+              }
+            }
+
+            // iOS：基於音量歷史決定動畫狀態
+            if (_soundLevelHistory.isNotEmpty) {
+              double recentMax = _soundLevelHistory
+                  .sublist((_soundLevelHistory.length - 3)
+                      .clamp(0, _soundLevelHistory.length))
+                  .reduce((a, b) => a > b ? a : b);
+              if (recentMax <= _dBThreshold) {
+                _animationController.reverse(); // 氣泡縮小
+              }
+            }
+          } else {
+            // Android：標準偵測
+            if (_soundLevel > _dBThreshold) {
+              if (!_hasAddedWord) {
+                _wordCount++;
+                _hasAddedWord = true;
+                _lastPeakTime =
+                    DateTime.now().millisecondsSinceEpoch.toDouble();
+                print('Android 偵測到音節 #$_wordCount，當前音量: $_soundLevel dB');
+              }
+              _animationController.forward(); // 氣泡放大
+            } else {
+              _hasAddedWord = false;
+              _animationController.reverse(); // 氣泡縮小
+            }
+          }
         });
       }, onError: (e) {
         debugPrint('噪音偵測錯誤 (${Platform.isIOS ? "iOS" : "Android"}): $e');
@@ -571,70 +678,8 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
     setState(() => _isListening = true);
     print(
         '開始音量偵測 - 平台: ${Platform.isIOS ? "iOS" : "Android"}, 閾值: $_dBThreshold dB');
-  }
-
-  // 智能音節檢測演算法
-  void _detectSyllableIntelligent(double currentVolume) {
-    // 更新音量歷史
-    _volumeHistory.add(currentVolume);
-    if (_volumeHistory.length > _maxHistoryLength) {
-      _volumeHistory.removeAt(0);
-    }
-
-    DateTime now = DateTime.now();
-
-    // 檢查是否有足夠的歷史數據
-    if (_volumeHistory.length < 3) return;
-
-    // 檢測音節開始
-    if (!_inSyllable && currentVolume > _dBThreshold) {
-      // 檢查時間間隔，避免重複計數
-      if (_lastSyllableTime == null ||
-          now.difference(_lastSyllableTime!).inMilliseconds >
-              _minSyllableInterval) {
-        _inSyllable = true;
-        _wordCount++;
-        _lastSyllableTime = now;
-        _animationController.forward(); // 氣泡放大
-
-        print(
-            '${Platform.isIOS ? "iOS" : "Android"} 智能檢測到音節 #$_wordCount，音量: ${currentVolume.toStringAsFixed(1)} dB');
-      }
-    }
-
-    // 檢測音節結束（針對iOS的特殊處理）
-    if (_inSyllable) {
-      bool syllableEnded = false;
-
-      if (Platform.isIOS) {
-        // iOS: 檢測音量下降趨勢或低於閾值
-        if (_volumeHistory.length >= 5) {
-          // 檢查最近幾個樣本的音量下降趨勢
-          double maxRecent = _volumeHistory
-              .sublist(_volumeHistory.length - 5)
-              .reduce((a, b) => a > b ? a : b);
-          double volumeDrop = maxRecent - currentVolume;
-
-          syllableEnded = currentVolume < _dBThreshold ||
-              volumeDrop > _volumeDropThreshold ||
-              now.difference(_lastSyllableTime!).inMilliseconds > 800; // 最大音節長度
-        }
-      } else {
-        // Android: 簡單的閾值檢測
-        syllableEnded = currentVolume < _dBThreshold;
-      }
-
-      if (syllableEnded) {
-        _inSyllable = false;
-        _animationController.reverse(); // 氣泡縮小
-        print(
-            '${Platform.isIOS ? "iOS" : "Android"} 音節結束，當前音量: ${currentVolume.toStringAsFixed(1)} dB');
-      }
-    }
-
-    // 如果不在音節中且音量低於閾值，確保動畫處於縮小狀態
-    if (!_inSyllable && currentVolume < _dBThreshold) {
-      _animationController.reverse();
+    if (Platform.isIOS) {
+      print('iOS AGC 補償模式已啟用');
     }
   }
 
@@ -655,13 +700,9 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
       _soundLevel = 0.0;
       _hasAddedWord = false;
       _remainingTime = 10; // 重置倒數
-
-      // 重置智能檢測相關變數
-      _volumeHistory.clear();
-      _lastSyllableTime = null;
-      _inSyllable = false;
+      _soundLevelHistory.clear(); // 清空音量歷史
+      _lastPeakTime = 0;
     });
-    print('重置檢測狀態 - 平台: ${Platform.isIOS ? "iOS" : "Android"}');
   }
 
   // **開始倒數計時**
@@ -687,119 +728,6 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
     Navigator.pop(context); // 返回上一畫面
   }
 
-  // 顯示檢測參數資訊對話框
-  void _showDetectionInfo() {
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: Row(
-            children: [
-              Icon(
-                Platform.isIOS ? Icons.phone_iphone : Icons.android,
-                color: Platform.isIOS ? Colors.grey[700] : Colors.green,
-              ),
-              const SizedBox(width: 8),
-              Text('${Platform.isIOS ? "iOS" : "Android"} 智能檢測參數'),
-            ],
-          ),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _buildInfoRow(
-                    '平台', Platform.isIOS ? 'iOS 增強模式' : 'Android 標準模式'),
-                _buildInfoRow('預設閾值', '${Platform.isIOS ? "75" : "80"} dB'),
-                _buildInfoRow(
-                    '音量範圍', '${Platform.isIOS ? "50-90" : "60-100"} dB'),
-                _buildInfoRow('歷史記錄長度', '${Platform.isIOS ? "15" : "10"} 個樣本'),
-                _buildInfoRow('最小音節間隔', '${Platform.isIOS ? "200" : "150"} 毫秒'),
-                _buildInfoRow('音量下降閾值', '${Platform.isIOS ? "15" : "10"} dB'),
-                const SizedBox(height: 16),
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Platform.isIOS
-                        ? Colors.blue.withOpacity(0.1)
-                        : Colors.green.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        Platform.isIOS ? 'iOS 特殊處理：' : 'Android 標準處理：',
-                        style: const TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                      const SizedBox(height: 8),
-                      if (Platform.isIOS) ...[
-                        const Text('• 音量下降趨勢檢測',
-                            style: TextStyle(fontSize: 13)),
-                        const Text('• 延長的音量歷史記錄',
-                            style: TextStyle(fontSize: 13)),
-                        const Text('• 更長的音節間隔保護',
-                            style: TextStyle(fontSize: 13)),
-                        const Text('• 最大音節長度限制 (800ms)',
-                            style: TextStyle(fontSize: 13)),
-                      ] else ...[
-                        const Text('• 即時音量閾值檢測',
-                            style: TextStyle(fontSize: 13)),
-                        const Text('• 快速響應音量變化',
-                            style: TextStyle(fontSize: 13)),
-                        const Text('• 簡潔的檢測邏輯', style: TextStyle(fontSize: 13)),
-                      ],
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  '💡 提示：如果檢測不準確，請嘗試調整靈敏度滑桿',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.orange[700],
-                    fontStyle: FontStyle.italic,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('關閉'),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  // 建立資訊列的輔助方法
-  Widget _buildInfoRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 80,
-            child: Text(
-              '$label：',
-              style: const TextStyle(fontWeight: FontWeight.w500),
-            ),
-          ),
-          Expanded(
-            child: Text(
-              value,
-              style: TextStyle(color: Colors.grey[700]),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -811,14 +739,6 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
         shadowColor: Colors.black.withOpacity(0.1),
         centerTitle: true,
         iconTheme: const IconThemeData(color: Colors.black87),
-        actions: [
-          // 添加資訊按鈕
-          IconButton(
-            icon: const Icon(Icons.info_outline, color: Colors.blue),
-            onPressed: _showDetectionInfo,
-            tooltip: '檢測參數說明',
-          ),
-        ],
       ),
       body: SafeArea(
         child: Padding(
@@ -1100,50 +1020,14 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
                 '平台建議範圍: ${Platform.isIOS ? "50-90" : "60-100"} dB',
                 style: TextStyle(fontSize: 12, color: Colors.grey[500]),
               ),
-              // 添加智能檢測狀態顯示
-              if (_isListening) ...[
-                const SizedBox(height: 8),
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: _inSyllable
-                        ? Colors.green.withOpacity(0.1)
-                        : Colors.grey.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(15),
-                    border: Border.all(
-                      color: _inSyllable ? Colors.green : Colors.grey,
-                      width: 1,
-                    ),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        _inSyllable ? Icons.mic : Icons.mic_off,
-                        size: 16,
-                        color: _inSyllable ? Colors.green : Colors.grey,
-                      ),
-                      const SizedBox(width: 6),
-                      Text(
-                        _inSyllable ? '檢測中...' : '待機中',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: _inSyllable
-                              ? Colors.green[700]
-                              : Colors.grey[600],
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 4),
+              if (Platform.isIOS)
                 Text(
-                  '智能檢測 (${Platform.isIOS ? "iOS增強模式" : "Android標準模式"})',
-                  style: TextStyle(fontSize: 11, color: Colors.blue[600]),
+                  'iOS AGC 補償模式：使用進階演算法偵測斷續音節',
+                  style: TextStyle(
+                      fontSize: 11,
+                      color: Colors.blue[600],
+                      fontWeight: FontWeight.w500),
                 ),
-              ],
             ],
           ),
           const SizedBox(height: 4),
@@ -1171,8 +1055,15 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
                       setState(() {
                         ///更新 _dBThreshold 的數值
                         _dBThreshold = value;
-                        print(
-                            '調整音量閾值: $_dBThreshold dB (${Platform.isIOS ? "iOS" : "Android"})');
+                        // iOS 同時調整 AGC 補償參數
+                        if (Platform.isIOS) {
+                          _peakDecayThreshold =
+                              0.6 + (_dBThreshold - 50) / 40 * 0.3; // 動態調整衰減閾值
+                          print(
+                              '調整音量閾值: $_dBThreshold dB，峰值衰減閾值: ${_peakDecayThreshold.toStringAsFixed(2)} (iOS AGC 補償)');
+                        } else {
+                          print('調整音量閾值: $_dBThreshold dB (Android)');
+                        }
                       });
                     },
             ),

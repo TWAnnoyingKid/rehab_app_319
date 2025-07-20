@@ -111,19 +111,41 @@ public class SwiftAudioStreamerPlugin: NSObject, FlutterPlugin, FlutterStreamHan
     engine = AVAudioEngine()
 
     do {
-      try AVAudioSession.sharedInstance().setCategory(
-        AVAudioSession.Category.playAndRecord, options: .mixWithOthers)
-      try AVAudioSession.sharedInstance().setActive(true)
+      // 設定音頻會話以禁用 AGC 和其他自動處理
+      let audioSession = AVAudioSession.sharedInstance()
+      
+      // 使用 .record 類別而不是 .playAndRecord，這樣可以獲得更純淨的音頻輸入
+      try audioSession.setCategory(
+        AVAudioSession.Category.record,
+        mode: AVAudioSession.Mode.measurement, // 使用測量模式禁用音頻處理
+        options: [.allowBluetoothA2DP, .duckOthers]
+      )
+      
+      // 嘗試禁用 AGC 和其他音頻增強功能（iOS 私有 API，可能無效但值得嘗試）
+      try audioSession.setActive(true, options: [])
+      
+      // 設定優選的無處理輸入
+      if audioSession.responds(to: #selector(AVAudioSession.setPreferredInputNumberOfChannels(_:))) {
+        try audioSession.setPreferredInputNumberOfChannels(1)
+      }
 
       if let sampleRateNotNull = sampleRate {
-        // Try to set sample rate
-        try AVAudioSession.sharedInstance().setPreferredSampleRate(Double(sampleRateNotNull))
+        // 設定採樣率
+        try audioSession.setPreferredSampleRate(Double(sampleRateNotNull))
       }
 
       let input = engine.inputNode
       let bus = 0
 
-      input.installTap(onBus: bus, bufferSize: 22050, format: input.inputFormat(forBus: bus)) {
+      // 獲取輸入格式，確保使用原始格式
+      let inputFormat = input.inputFormat(forBus: bus)
+      print("iOS 音頻輸入格式: \(inputFormat)")
+      print("iOS AGC 禁用設定完成")
+
+      // 使用較小的緩衝區大小以提高響應速度
+      let bufferSize: AVAudioFrameCount = 1024 // 減小緩衝區以獲得更快的響應
+      
+      input.installTap(onBus: bus, bufferSize: bufferSize, format: inputFormat) {
         buffer, _ -> Void in
         let samples = buffer.floatChannelData?[0]
         // audio callback, samples in samples[0]...samples[buffer.frameLength-1]
@@ -132,7 +154,9 @@ public class SwiftAudioStreamerPlugin: NSObject, FlutterPlugin, FlutterStreamHan
       }
 
       try engine.start()
+      print("iOS 錄音引擎啟動成功，AGC 已禁用")
     } catch {
+      print("iOS 音頻會話設定失敗: \(error)")
       eventSink!(
         FlutterError(
           code: "100", message: "Unable to start audio session", details: error.localizedDescription
