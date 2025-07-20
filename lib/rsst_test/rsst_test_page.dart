@@ -38,22 +38,8 @@ class _RsstTestPageState extends State<RsstTestPage> {
   @override
   void initState() {
     super.initState();
-    // 提前初始化錄音器（特別是為了 iOS）
-    _preInitializeRecorder();
     // 延遲100毫秒再開始倒數，避免界面渲染問題
     Future.delayed(Duration(milliseconds: 100), _initTest);
-  }
-
-  // 提前初始化錄音器
-  Future<void> _preInitializeRecorder() async {
-    try {
-      print('提前初始化錄音器...');
-      await audioRecorder.init();
-      print('錄音器提前初始化完成');
-    } catch (e) {
-      print('提前初始化錄音器失敗: $e');
-      // 不在這裡顯示錯誤，留到實際使用時處理
-    }
   }
 
   void _initTest() {
@@ -98,13 +84,7 @@ class _RsstTestPageState extends State<RsstTestPage> {
       print('成功提前開始錄音，當前倒數：$_preparationCounter 秒');
     } catch (e) {
       print('提前錄音初始化失敗: $e');
-      String errorMessage;
-      if (Platform.isIOS) {
-        errorMessage = 'iOS 錄音初始化失敗。\n\n請確認：\n1. 已在設定 → 隱私權 → 麥克風中允許此應用程式\n2. 重新啟動應用程式\n3. 確保沒有其他應用程式正在使用麥克風\n\n錯誤詳情：$e';
-      } else {
-        errorMessage = '錄音初始化失敗，請檢查麥克風權限。\n錯誤詳情：$e';
-      }
-      _showErrorDialog(errorMessage);
+      _showErrorDialog('錄音初始化失敗，請檢查麥克風權限。');
       return;
     }
   }
@@ -145,13 +125,7 @@ class _RsstTestPageState extends State<RsstTestPage> {
       print('成功開始錄音，將持續 $_recordingCounter 秒');
     } catch (e) {
       print('錄音初始化失敗: $e');
-      String errorMessage;
-      if (Platform.isIOS) {
-        errorMessage = 'iOS 錄音初始化失敗。\n\n請確認：\n1. 已在設定 → 隱私權 → 麥克風中允許此應用程式\n2. 重新啟動應用程式\n3. 確保沒有其他應用程式正在使用麥克風\n\n錯誤詳情：$e';
-      } else {
-        errorMessage = '錄音初始化失敗，請檢查麥克風權限。\n錯誤詳情：$e';
-      }
-      _showErrorDialog(errorMessage);
+      _showErrorDialog('錄音初始化失敗，請檢查麥克風權限。');
       return;
     }
 

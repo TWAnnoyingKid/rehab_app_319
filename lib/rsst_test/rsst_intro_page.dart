@@ -7,7 +7,6 @@ import 'package:permission_handler/permission_handler.dart';
 import '/flutter_flow/flutter_flow_theme.dart';
 import 'rsst_test_page.dart';
 import 'rsst_result_page.dart';
-import 'audio_recorder.dart';
 
 class RsstIntroPage extends StatefulWidget {
   const RsstIntroPage({Key? key}) : super(key: key);
@@ -248,138 +247,6 @@ class _RsstIntroPageState extends State<RsstIntroPage> {
     return false;
   }
 
-  // iOS 錄音測試方法
-  Future<void> _testIOSRecording() async {
-    if (!Platform.isIOS) return;
-
-    print('=== 開始 iOS 錄音測試 ===');
-
-    try {
-      // 創建測試錄音器
-      AudioRecorder testRecorder = AudioRecorder();
-
-      // 顯示測試對話框
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (BuildContext context) {
-          return AlertDialog(
-            title: Text('iOS 錄音測試'),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                CircularProgressIndicator(),
-                SizedBox(height: 15),
-                Text('正在測試 iOS 錄音功能...'),
-              ],
-            ),
-          );
-        },
-      );
-
-      // 測試初始化
-      print('測試步驟 1: 初始化錄音器');
-      await testRecorder.init();
-      print('✅ 錄音器初始化成功');
-
-      // 測試開始錄音
-      print('測試步驟 2: 開始錄音');
-      await testRecorder.startRecording();
-      print('✅ 錄音開始成功');
-
-      // 錄音 2 秒
-      await Future.delayed(Duration(seconds: 2));
-
-      // 測試停止錄音
-      print('測試步驟 3: 停止錄音');
-      String? recordingPath = await testRecorder.stopRecording();
-      print('✅ 錄音停止成功，檔案路徑: $recordingPath');
-
-      // 清理資源
-      await testRecorder.dispose();
-
-      // 關閉測試對話框
-      if (mounted) {
-        Navigator.of(context).pop();
-
-        // 顯示成功訊息
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('🎉 iOS 錄音測試成功！可以正常進行 RSST 測驗'),
-            backgroundColor: Colors.green,
-            duration: Duration(seconds: 3),
-          ),
-        );
-      }
-
-      print('=== iOS 錄音測試完成：成功 ===');
-    } catch (e) {
-      print('❌ iOS 錄音測試失敗: $e');
-
-      // 關閉測試對話框
-      if (mounted) {
-        Navigator.of(context).pop();
-
-        // 顯示錯誤訊息
-        showDialog(
-          context: context,
-          builder: (BuildContext context) {
-            return AlertDialog(
-              title: Text('iOS 錄音測試失敗'),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '錄音功能測試失敗，請檢查：',
-                      style: TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                    SizedBox(height: 10),
-                    Text('1. 設定 → 隱私權 → 麥克風 → 復健APP ✅'),
-                    Text('2. 重新啟動應用程式'),
-                    Text('3. 確保沒有其他應用程式使用麥克風'),
-                    SizedBox(height: 15),
-                    Text(
-                      '錯誤詳情：',
-                      style: TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                    Container(
-                      padding: EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: Colors.grey[100],
-                        borderRadius: BorderRadius.circular(5),
-                      ),
-                      child: Text(
-                        e.toString(),
-                        style: TextStyle(fontFamily: 'monospace', fontSize: 12),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: Text('確定'),
-                ),
-                TextButton(
-                  onPressed: () {
-                    Navigator.of(context).pop();
-                    openAppSettings();
-                  },
-                  child: Text('開啟設定'),
-                ),
-              ],
-            );
-          },
-        );
-      }
-
-      print('=== iOS 錄音測試完成：失敗 ===');
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
@@ -588,29 +455,7 @@ class _RsstIntroPageState extends State<RsstIntroPage> {
                     ),
                   ).animate().fade(duration: 500.ms).scale(duration: 500.ms),
 
-                  // iOS 錄音測試按鈕（調試用）
-                  if (Platform.isIOS)
-                    Padding(
-                      padding: EdgeInsetsDirectional.fromSTEB(0, 10, 0, 10),
-                      child: ElevatedButton.icon(
-                        icon: Icon(Icons.bug_report, color: Colors.white),
-                        label: Text(
-                          'iOS 錄音測試',
-                          style: TextStyle(color: Colors.white, fontSize: 14),
-                        ),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.orange,
-                          padding: EdgeInsets.symmetric(
-                              horizontal: 20, vertical: 10),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          elevation: 2,
-                        ),
-                        onPressed: _testIOSRecording,
-                      ),
-                    ),
-
+                  /*
                   //上傳音檔按鈕 測試模型用 部屬時刪除
                   Padding(
                     padding: EdgeInsetsDirectional.fromSTEB(0, 0, 0, 30),
@@ -622,8 +467,7 @@ class _RsstIntroPageState extends State<RsstIntroPage> {
                       ),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Color(0xFF2E5AAC),
-                        padding:
-                            EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+                        padding: EdgeInsets.symmetric(horizontal: 20, vertical: 15),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(20),
                         ),
@@ -632,6 +476,7 @@ class _RsstIntroPageState extends State<RsstIntroPage> {
                       onPressed: _isUploading ? null : _uploadAudioFile,
                     ),
                   ).animate().fade(duration: 500.ms, delay: 200.ms),
+
 
                   // 上傳進度指示器
                   if (_isUploading)
@@ -651,6 +496,8 @@ class _RsstIntroPageState extends State<RsstIntroPage> {
                         ],
                       ),
                     ),
+
+                    */
                 ],
               ),
             ),

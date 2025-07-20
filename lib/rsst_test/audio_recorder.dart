@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -35,43 +36,17 @@ class AudioRecorder {
 
       print('初始化錄音器...');
 
-      // iOS 特殊處理：添加延遲確保權限狀態穩定
-      if (Platform.isIOS) {
-        print('iOS 平台：準備音頻會話...');
-        await Future.delayed(Duration(milliseconds: 500));
-      }
-
       // 請求錄音權限
       var status = await Permission.microphone.request();
       if (status != PermissionStatus.granted) {
-        throw RecordingPermissionException('麥克風權限未授予，當前狀態: $status');
+        throw RecordingPermissionException('麥克風權限未授予');
       }
       print('麥克風權限已授予');
-
-      // iOS 特殊處理：再次確認權限並等待
-      if (Platform.isIOS) {
-        await Future.delayed(Duration(milliseconds: 300));
-        var doubleCheckStatus = await Permission.microphone.status;
-        if (!doubleCheckStatus.isGranted) {
-          throw RecordingPermissionException('iOS 權限狀態不穩定，狀態: $doubleCheckStatus');
-        }
-        print('iOS 權限狀態確認完成');
-      }
 
       // 檢查是否可以錄音
       bool canRecord = await _recorder.hasPermission();
       if (!canRecord) {
-        // iOS 特殊處理：嘗試再次檢查
-        if (Platform.isIOS) {
-          print('iOS 第一次權限檢查失敗，嘗試重新檢查...');
-          await Future.delayed(Duration(milliseconds: 500));
-          canRecord = await _recorder.hasPermission();
-          if (!canRecord) {
-            throw RecordingPermissionException('iOS 無法獲得錄音權限，請檢查設定中的麥克風權限');
-          }
-        } else {
-          throw RecordingPermissionException('無法獲得錄音權限');
-        }
+        throw RecordingPermissionException('無法獲得錄音權限');
       }
 
       _isRecorderInitialized = true;
@@ -107,16 +82,10 @@ class AudioRecorder {
     print('檔案將保存至: $_recordingPath');
 
     try {
-      // iOS 特殊處理：在開始錄音前添加延遲
-      if (Platform.isIOS) {
-        print('iOS 平台：準備開始錄音...');
-        await Future.delayed(Duration(milliseconds: 200));
-      }
-
       // 再次檢查麥克風權限
       var status = await Permission.microphone.status;
       if (!status.isGranted) {
-        throw RecordingPermissionException('麥克風權限未授予或已被撤銷，狀態: $status');
+        throw RecordingPermissionException('麥克風權限未授予或已被撤銷');
       }
 
       // 確保目錄存在
@@ -125,43 +94,25 @@ class AudioRecorder {
         await dir.create(recursive: true);
       }
 
-      // iOS 特殊處理：使用更保守的錄音配置
-      if (Platform.isIOS) {
-        print('iOS 平台：使用優化的錄音設定...');
-        
-        // 開始錄音 - iOS 優化設定
-        await _recorder.start(
-          path: _recordingPath,
-          encoder: AudioEncoder.wav,      // WAV格式
-          bitRate: 32000,                 // 32 kbps (更保守的設定)
-          samplingRate: 16000,            // 16 kHz (iOS 更相容)
-          numChannels: 1,                 // 單聲道
-        );
-      } else {
-        // Android 使用原始設定
-        await _recorder.start(
-          path: _recordingPath,
-          encoder: AudioEncoder.wav,      // WAV格式
-          bitRate: 16 * 1000,             // 16 kbps
-          samplingRate: _sampleRate,      // 44.1 kHz
-          numChannels: 1,                 // 單聲道
-        );
-      }
+      // 開始錄音
+      await _recorder.start(
+        path: _recordingPath,
+        encoder: AudioEncoder.wav,  // WAV格式
+        bitRate: 16 * 1000,         // 16 kbps
+        samplingRate: _sampleRate,  // 44.1 kHz
+        numChannels: 1,             // 單聲道
+      );
 
       // 設置音量監聽器
       _recorder.onAmplitudeChanged(const Duration(milliseconds: 300)).listen((amp) {
         print('錄音中，音量: ${amp.current} dB, 峰值: ${amp.max} dB');
       });
 
-      print('錄音開始成功 (${Platform.isIOS ? "iOS" : "Android"} 模式)');
+      print('錄音開始');
       _isRecording = true;
     } catch (e) {
       print('開始錄音失敗: $e');
-      if (Platform.isIOS) {
-        throw Exception('iOS 錄音失敗: $e\n請確認在設定中已授予麥克風權限');
-      } else {
-        throw Exception('開始錄音失敗: $e');
-      }
+      throw Exception('開始錄音失敗: $e');
     }
   }
 
