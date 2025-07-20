@@ -10,6 +10,9 @@ import '../../flutter_flow/flutter_flow_util.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:intl/intl.dart';
 import 'dart:io'; // 添加這個 import 來檢測平台
+import 'package:record/record.dart';
+import 'dart:typed_data';
+import 'dart:math' as math;
 
 /// **第一個畫面：讓使用者選擇 PA、TA、KA**
 class speech extends StatefulWidget {
@@ -481,10 +484,10 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
   // 平台特定的音量閾值
   double _dBThreshold = Platform.isIOS ? 75.0 : 80.0; // iOS 通常需要較低的閾值
 
-  // iOS 特殊處理：音量變化檢測
-  double _previousSoundLevel = 0.0;
-  int _lastWordTime = 0; // 記錄最後一次計數的時間
-  late final int _minIntervalMs; // 平台特定的最小間隔時間
+  // 錄音相關
+  final Record _audioRecorder = Record();
+  String? _recordingPath;
+  bool _isRecording = false;
 
   // 動畫控制
   late AnimationController _animationController;
@@ -517,11 +520,8 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
 
   // 添加平台特定設置初始化
   void _initializePlatformSpecificSettings() {
-    // 設定平台特定的最小間隔時間
-    _minIntervalMs = Platform.isIOS ? 150 : 100; // iOS 需要較短間隔來處理音量下降慢的問題
-
     if (Platform.isIOS) {
-      print('iOS 平台：使用優化的音量閾值設定和快速重置邏輯');
+      print('iOS 平台：使用優化的音量閾值設定');
       // iOS 可能需要更精確的調整
     } else {
       print('Android 平台：使用標準音量閾值設定');
@@ -541,60 +541,97 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
     }
   }
 
-  void _startListening() {
+  void _startListening() async {
     if (_isListening) return;
 
     _resetValues(); // 重置計數與變數
-    _noiseMeter ??= NoiseMeter();
 
     try {
-      // 開始監聽音量
+      // 開始錄音
+      await _startRecording();
+
+      // 開始實時音量監聽（僅用於UI動畫效果）
+      _noiseMeter ??= NoiseMeter();
       _noiseSubscription = _noiseMeter!.noiseStream.listen((noiseEvent) {
         setState(() {
-          _soundLevel = noiseEvent.meanDecibel; //更新音量數據
+          _soundLevel = noiseEvent.meanDecibel; //更新音量數據（僅用於UI顯示）
 
-          // 平台特定的音節檢測邏輯
+          // 保持動畫效果，但不計數
           if (_soundLevel > _dBThreshold) {
-            _checkForNewWord();
             _animationController.forward(); // 氣泡放大
           } else {
-            // iOS 特殊處理：檢查音量是否有顯著下降
-            if (Platform.isIOS && _hasAddedWord) {
-              _checkVolumeDropForIOS();
-            } else {
-              _hasAddedWord = false;
-            }
             _animationController.reverse(); // 氣泡縮小
           }
-
-          _previousSoundLevel = _soundLevel; // 更新前一次的音量
         });
       }, onError: (e) {
         debugPrint('噪音偵測錯誤 (${Platform.isIOS ? "iOS" : "Android"}): $e');
-        _stopListening();
       });
 
       // 開始倒數計時
       _startCountdown();
+
+      setState(() => _isListening = true);
+      print(
+          '開始錄音偵測 - 平台: ${Platform.isIOS ? "iOS" : "Android"}, 閾值: $_dBThreshold dB');
     } catch (e) {
-      debugPrint('啟動偵測時發生錯誤 (${Platform.isIOS ? "iOS" : "Android"}): $e');
+      debugPrint('啟動錄音偵測時發生錯誤 (${Platform.isIOS ? "iOS" : "Android"}): $e');
+      // ignore: unawaited_futures
       _stopListening();
     }
-
-    setState(() => _isListening = true);
-    print(
-        '開始音量偵測 - 平台: ${Platform.isIOS ? "iOS" : "Android"}, 閾值: $_dBThreshold dB');
   }
 
-  void _stopListening() {
+  // 開始錄音
+  Future<void> _startRecording() async {
+    try {
+      if (await _audioRecorder.hasPermission()) {
+        // 生成錄音檔案路徑
+        final directory = Directory.systemTemp;
+        _recordingPath =
+            '${directory.path}/speech_detection_${DateTime.now().millisecondsSinceEpoch}.wav';
+
+        await _audioRecorder.start(
+          path: _recordingPath!,
+          encoder: AudioEncoder.wav,
+          bitRate: 16000,
+          samplingRate: 44100,
+        );
+        _isRecording = true;
+        print('錄音開始: $_recordingPath');
+      }
+    } catch (e) {
+      debugPrint('開始錄音失敗: $e');
+      throw e;
+    }
+  }
+
+  Future<void> _stopListening() async {
     _noiseSubscription?.cancel();
     _noiseSubscription = null;
     _noiseMeter = null;
     _countdownTimer?.cancel(); // 停止倒數
+
+    // 停止錄音
+    if (_isRecording) {
+      await _stopRecording();
+    }
+
     setState(() {
       _isListening = false;
       _animationController.reverse(); // 測試停止時，氣泡恢復原狀
     });
+  }
+
+  // 停止錄音
+  Future<void> _stopRecording() async {
+    try {
+      if (_isRecording) {
+        await _audioRecorder.stop();
+        _isRecording = false;
+        print('錄音停止: $_recordingPath');
+      }
+    } catch (e) {
+      debugPrint('停止錄音失敗: $e');
+    }
   }
 
   void _resetValues() {
@@ -603,35 +640,7 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
       _soundLevel = 0.0;
       _hasAddedWord = false;
       _remainingTime = 10; // 重置倒數
-      _previousSoundLevel = 0.0;
-      _lastWordTime = 0;
     });
-  }
-
-  // 檢查是否為新的音節
-  void _checkForNewWord() {
-    final currentTime = DateTime.now().millisecondsSinceEpoch;
-
-    if (!_hasAddedWord || (currentTime - _lastWordTime) >= _minIntervalMs) {
-      _wordCount++;
-      _hasAddedWord = true;
-      _lastWordTime = currentTime;
-      print(
-          '${Platform.isIOS ? "iOS" : "Android"} 偵測到音節，當前音量: $_soundLevel dB，間隔: ${currentTime - _lastWordTime}ms');
-    }
-  }
-
-  // iOS 特殊處理：檢查音量下降來重置狀態
-  void _checkVolumeDropForIOS() {
-    // 如果音量相對於前一次有顯著下降（超過5dB），或者距離上次計數已超過最小間隔
-    final currentTime = DateTime.now().millisecondsSinceEpoch;
-    final volumeDrop = _previousSoundLevel - _soundLevel;
-
-    if (volumeDrop > 5.0 || (currentTime - _lastWordTime) >= _minIntervalMs) {
-      _hasAddedWord = false;
-      print(
-          'iOS 音量下降重置，音量降幅: ${volumeDrop.toStringAsFixed(1)}dB，間隔: ${currentTime - _lastWordTime}ms');
-    }
   }
 
   // **開始倒數計時**
@@ -645,16 +654,115 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
       } else {
         timer.cancel();
         _finishTest(); // 完成測試
+        // ignore: unawaited_futures
       }
     });
   }
 
   // 完成測試，返回上一畫面
-  void _finishTest() {
-    _stopListening();
+  Future<void> _finishTest() async {
+    await _stopListening();
+
+    // 分析錄音檔案並計算峰值
+    if (_recordingPath != null && File(_recordingPath!).existsSync()) {
+      try {
+        int detectedPeaks = await _analyzeAudioFile(_recordingPath!);
+        setState(() {
+          _wordCount = detectedPeaks;
+        });
+        print('音頻分析完成，偵測到 $detectedPeaks 個音節');
+      } catch (e) {
+        debugPrint('音頻分析失敗: $e');
+      }
+    }
+
     // 回調通知完成了測試並傳遞字數
     widget.onComplete(_wordCount);
     Navigator.pop(context); // 返回上一畫面
+  }
+
+  // 分析音頻檔案，檢測音量峰值
+  Future<int> _analyzeAudioFile(String filePath) async {
+    try {
+      File audioFile = File(filePath);
+      Uint8List audioBytes = await audioFile.readAsBytes();
+
+      // 跳過 WAV 檔案標頭 (通常是44字節)
+      int headerSize = 44;
+      if (audioBytes.length <= headerSize) {
+        return 0;
+      }
+
+      // 讀取音頻數據 (16-bit PCM)
+      List<double> audioSamples = [];
+      for (int i = headerSize; i < audioBytes.length - 1; i += 2) {
+        int sample = audioBytes[i] | (audioBytes[i + 1] << 8);
+        if (sample > 32767) sample -= 65536; // 轉換為有符號數
+        audioSamples.add(sample / 32768.0); // 正規化到 -1.0 到 1.0
+      }
+
+      // 計算音量峰值
+      return _detectVolumePeaks(audioSamples);
+    } catch (e) {
+      debugPrint('分析音頻檔案時發生錯誤: $e');
+      return 0;
+    }
+  }
+
+  // 偵測音量峰值
+  int _detectVolumePeaks(List<double> audioSamples) {
+    if (audioSamples.isEmpty) return 0;
+
+    const int windowSize = 1024; // 窗口大小
+    const double threshold = 0.1; // 相對閾值 (0.0 到 1.0)
+    const int minDistanceBetweenPeaks = 2205; // 最小峰值間距 (約0.05秒 at 44100Hz)
+
+    List<double> rmsValues = [];
+
+    // 計算每個窗口的RMS值
+    for (int i = 0;
+        i < audioSamples.length - windowSize;
+        i += windowSize ~/ 2) {
+      double sum = 0;
+      for (int j = i; j < i + windowSize && j < audioSamples.length; j++) {
+        sum += audioSamples[j] * audioSamples[j];
+      }
+      double rms = math.sqrt(sum / windowSize);
+      rmsValues.add(rms);
+    }
+
+    if (rmsValues.isEmpty) return 0;
+
+    // 找到最大RMS值，用於動態閾值
+    double maxRms = rmsValues.reduce(math.max);
+    double dynamicThreshold = maxRms * threshold;
+
+    // 偵測峰值
+    List<int> peaks = [];
+    int lastPeakIndex = -minDistanceBetweenPeaks;
+
+    for (int i = 1; i < rmsValues.length - 1; i++) {
+      double current = rmsValues[i];
+      double prev = rmsValues[i - 1];
+      double next = rmsValues[i + 1];
+
+      // 檢查是否為峰值且超過閾值
+      if (current > dynamicThreshold &&
+          current > prev &&
+          current > next &&
+          (i - lastPeakIndex) >=
+              (minDistanceBetweenPeaks ~/ (windowSize ~/ 2))) {
+        peaks.add(i);
+        lastPeakIndex = i;
+        print(
+            '偵測到峰值 #${peaks.length} at index $i, RMS: ${current.toStringAsFixed(4)}');
+      }
+    }
+
+    print(
+        '音頻分析: 總樣本數 ${audioSamples.length}, RMS窗口數 ${rmsValues.length}, 動態閾值 ${dynamicThreshold.toStringAsFixed(4)}, 偵測到 ${peaks.length} 個峰值');
+
+    return peaks.length;
   }
 
   @override
@@ -993,6 +1101,13 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
     _noiseSubscription?.cancel();
     _animationController.dispose();
     _countdownTimer?.cancel();
+
+    // 清理錄音器
+    if (_isRecording) {
+      _audioRecorder.stop();
+    }
+    _audioRecorder.dispose();
+
     super.dispose();
   }
 }
