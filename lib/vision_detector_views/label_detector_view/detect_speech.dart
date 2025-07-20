@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math' as math; // 添加數學函數支援
 import 'package:flutter/material.dart';
 import 'package:noise_meter/noise_meter.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -10,8 +9,10 @@ import 'package:flutter/services.dart';
 import '../../flutter_flow/flutter_flow_util.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:intl/intl.dart';
-import 'dart:io'; // 添加這個 import 來檢測平台
-// import 'package:flutter_voice_processor/flutter_voice_processor.dart'; // 取消註解以使用 flutter_voice_processor
+import 'dart:io'; // 用於平台檢測
+
+// 將 enum 移至此處，成為頂層宣告
+enum DetectionState { IDLE, RISING, FALLING }
 
 /// **第一個畫面：讓使用者選擇 PA、TA、KA**
 class speech extends StatefulWidget {
@@ -473,59 +474,68 @@ class SoundDetectionScreen extends StatefulWidget {
 
 class _SoundDetectionScreenState extends State<SoundDetectionScreen>
     with SingleTickerProviderStateMixin {
-  // 現有的 noise_meter 實作
+  // --- 原有變數 ---
   NoiseMeter? _noiseMeter;
   StreamSubscription<NoiseReading>? _noiseSubscription;
-
-  // flutter_voice_processor 相關變數 (如果使用)
-  // VoiceProcessor? _voiceProcessor;
-
   bool _isListening = false;
   double _soundLevel = 0.0;
   int _wordCount = 0;
   bool _hasAddedWord = false;
-
-  // 平台特定的音量閾值
-  double _dBThreshold = Platform.isIOS ? 75.0 : 80.0; // iOS 通常需要較低的閾值
-
-  // 動畫控制
+  double _dBThreshold = Platform.isIOS ? 75.0 : 80.0;
   late AnimationController _animationController;
   late Animation<double> _scaleAnimation;
-
-  // 倒數計時
   Timer? _countdownTimer;
-  int _remainingTime = 10; // 設定倒數 10 秒
+  int _remainingTime = 10;
 
-  // 新增：flutter_voice_processor 音頻處理相關
-  List<int> _audioBuffer = [];
-  int _frameLength = 512; // 音頻幀長度
-  int _sampleRate = 16000; // 採樣率
-  double _previousVolume = 0.0;
-  int _silenceFrames = 0;
-  static const int _silenceThreshold = 3; // 連續靜音幀數判斷音節結束
+  // --- iOS 原生通訊新增變數 ---
+  static const _methodChannel = MethodChannel('com.rehab_app.audio/method');
+  static const _eventChannel = EventChannel('com.rehab_app.audio/event');
+  StreamSubscription? _nativeAudioSubscription;
+
+  // --- 峰值檢測新增變數 ---
+  DetectionState _detectionState = DetectionState.IDLE;
+  double _lastSoundLevel = 0.0;
 
   @override
   void initState() {
     super.initState();
-    _initializePlatformSpecificSettings(); // 添加平台特定初始化
+    _initializePlatformSpecificSettings();
     _requestPermissions();
 
-    /// 請求麥克風權限
-
-    // 動畫：讓氣泡變大縮小
     _animationController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 500), // 動畫時間 500ms
+      duration: const Duration(milliseconds: 500),
       lowerBound: 1.0,
-      upperBound: 2, // 放大 2 倍
+      upperBound: 2,
     );
     _scaleAnimation =
         Tween<double>(begin: 1.0, end: 1.3).animate(_animationController);
 
-    ///開始後大小
+    // 如果是 iOS，設定事件通道監聽
+    if (Platform.isIOS) {
+      _setupNativeAudioListener();
+    }
   }
 
-  // 添加平台特定設置初始化
+  // 設定原生音訊監聽 (僅 iOS)
+  void _setupNativeAudioListener() {
+    _nativeAudioSubscription = _eventChannel.receiveBroadcastStream().listen(
+      (dynamic db) {
+        if (!_isListening) return;
+        setState(() {
+          // iOS 原生返回的 dB 值可能是負數，需要轉換
+          // 假設原生返回的是振幅，需要轉換為 dB，或者原生直接返回 dB
+          // 這裡我們假設原生已經處理好，直接返回一個正的 dB 值
+          _soundLevel = db as double;
+          _processAudioLevel();
+        });
+      },
+      onError: (dynamic error) {
+        debugPrint('iOS 原生音訊錯誤: ${error.message}');
+      },
+    );
+  }
+
   void _initializePlatformSpecificSettings() {
     if (Platform.isIOS) {
       print('iOS 平台：使用優化的音量閾值設定');
@@ -548,201 +558,115 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
     }
   }
 
-  // 使用 noise_meter 的原始實作
-  void _startListeningWithNoiseMeter() {
-    if (_isListening) return;
-
-    _resetValues(); // 重置計數與變數
-    _noiseMeter ??= NoiseMeter();
-
-    try {
-      // 開始監聽音量
-      _noiseSubscription = _noiseMeter!.noiseStream.listen((noiseEvent) {
-        setState(() {
-          _soundLevel = noiseEvent.meanDecibel; //更新音量數據
-
-          if (_soundLevel > _dBThreshold) {
-            if (!_hasAddedWord) {
-              _wordCount++;
-              _hasAddedWord = true;
-              print(
-                  '${Platform.isIOS ? "iOS" : "Android"} 偵測到音節，當前音量: $_soundLevel dB');
-            }
-            _animationController.forward(); // 氣泡放大
-          } else {
-            _hasAddedWord = false;
-            _animationController.reverse(); // 氣泡縮小
-          }
-        });
-      }, onError: (e) {
-        debugPrint('噪音偵測錯誤 (${Platform.isIOS ? "iOS" : "Android"}): $e');
-        _stopListening();
-      });
-
-      // 開始倒數計時
-      _startCountdown();
-    } catch (e) {
-      debugPrint('啟動偵測時發生錯誤 (${Platform.isIOS ? "iOS" : "Android"}): $e');
-      _stopListening();
-    }
-
-    setState(() => _isListening = true);
-    print(
-        '開始音量偵測 - 平台: ${Platform.isIOS ? "iOS" : "Android"}, 閾值: $_dBThreshold dB');
-  }
-
-  // 新增：使用 flutter_voice_processor 的實作
-  void _startListeningWithVoiceProcessor() async {
-    /* 
-    取消註解以使用 flutter_voice_processor
-    
-    if (_isListening) return;
-
-    _resetValues();
-    
-    try {
-      // 設置音頻幀監聽器
-      _voiceProcessor = VoiceProcessor.instance;
-      
-      // 音頻幀處理函數
-      VoiceProcessorFrameListener frameListener = (List<int> frame) {
-        _processAudioFrame(frame);
-      };
-      
-      // 錯誤處理函數
-      VoiceProcessorErrorListener errorListener = (VoiceProcessorException error) {
-        debugPrint('VoiceProcessor 錯誤: $error');
-        _stopListening();
-      };
-      
-      // 添加監聽器
-      _voiceProcessor?.addFrameListener(frameListener);
-      _voiceProcessor?.addErrorListener(errorListener);
-      
-      // 檢查權限並開始錄音
-      if (await _voiceProcessor?.hasRecordAudioPermission() ?? false) {
-        await _voiceProcessor?.start(_frameLength, _sampleRate);
-        setState(() => _isListening = true);
-        _startCountdown();
-        print('flutter_voice_processor 開始錄音 - 平台: ${Platform.isIOS ? "iOS" : "Android"}');
-      } else {
-        debugPrint('麥克風權限未授予');
-      }
-    } catch (e) {
-      debugPrint('flutter_voice_processor 啟動失敗: $e');
-    }
-    */
-
-    // 如果沒有 flutter_voice_processor，退回到 noise_meter
-    _startListeningWithNoiseMeter();
-  }
-
-  // 新增：處理音頻幀的函數
-  void _processAudioFrame(List<int> frame) {
-    // 計算音量 (RMS)
-    double sum = 0.0;
-    for (int sample in frame) {
-      sum += sample * sample;
-    }
-    double rms = math.sqrt(sum / frame.length);
-
-    // 轉換為分貝 (大約的轉換)
-    double currentVolume =
-        20 * math.log(rms / 32767) / math.log(10) + 94; // 轉換為 dB
-
-    setState(() {
-      _soundLevel = currentVolume;
-    });
-
-    // 音節檢測邏輯 - 針對 iOS 優化
-    if (Platform.isIOS) {
-      _detectSyllableIOS(currentVolume);
-    } else {
-      _detectSyllableAndroid(currentVolume);
-    }
-  }
-
-  // 新增：iOS 特化的音節檢測
-  void _detectSyllableIOS(double volume) {
-    const double volumeThreshold = 70.0; // iOS 較低的閾值
-    const double volumeDrop = 15.0; // 音量下降幅度
-
-    if (volume > volumeThreshold) {
-      if (_silenceFrames > _silenceThreshold && !_hasAddedWord) {
-        // 檢測到新的音節開始
-        _wordCount++;
-        _hasAddedWord = true;
-        _silenceFrames = 0;
-        _animationController.forward();
-        print('iOS 偵測到音節 #$_wordCount，音量: ${volume.toStringAsFixed(1)} dB');
-      }
-      _silenceFrames = 0;
-    } else if (_previousVolume > volumeThreshold &&
-        volume < (_previousVolume - volumeDrop)) {
-      // 檢測到明顯的音量下降
-      _silenceFrames++;
-      if (_silenceFrames >= _silenceThreshold) {
-        _hasAddedWord = false;
-        _animationController.reverse();
-      }
-    } else if (volume < volumeThreshold) {
-      _silenceFrames++;
-      if (_silenceFrames >= _silenceThreshold) {
-        _hasAddedWord = false;
-        _animationController.reverse();
-      }
-    }
-
-    _previousVolume = volume;
-  }
-
-  // 新增：Android 的音節檢測
-  void _detectSyllableAndroid(double volume) {
-    if (volume > _dBThreshold) {
-      if (!_hasAddedWord) {
-        _wordCount++;
-        _hasAddedWord = true;
-        _animationController.forward();
-        print('Android 偵測到音節 #$_wordCount，音量: ${volume.toStringAsFixed(1)} dB');
-      }
-    } else {
-      _hasAddedWord = false;
-      _animationController.reverse();
-    }
-  }
-
+  // 統一的啟動按鈕入口
   void _startListening() {
-    // 優先使用 flutter_voice_processor，特別是在 iOS 上
+    if (_isListening) return;
+    _resetValues();
+
     if (Platform.isIOS) {
-      print('iOS 平台：嘗試使用 flutter_voice_processor 以獲得更好的音節檢測精度');
-      _startListeningWithVoiceProcessor();
+      _startNativeListening();
     } else {
-      print('Android 平台：使用 noise_meter（表現良好）');
-      _startListeningWithNoiseMeter();
+      _startNoiseMeterListening();
     }
+
+    _startCountdown();
+    setState(() => _isListening = true);
   }
 
+  // 統一的停止按鈕入口
   void _stopListening() {
-    _noiseSubscription?.cancel();
-    _noiseSubscription = null;
+    if (Platform.isIOS) {
+      _stopNativeListening();
+    } else {
+      _noiseSubscription?.cancel();
+    }
     _noiseMeter = null;
-    _countdownTimer?.cancel(); // 停止倒數
-
-    // 停止 flutter_voice_processor
-    // _voiceProcessor?.stop();
-
+    _countdownTimer?.cancel();
     setState(() {
       _isListening = false;
-      _animationController.reverse(); // 測試停止時，氣泡恢復原狀
+      _animationController.reverse();
     });
+  }
+
+  // 原生 iOS 音訊啟動
+  void _startNativeListening() async {
+    try {
+      await _methodChannel.invokeMethod('start');
+      print("iOS 原生音訊監聽已啟動");
+    } catch (e) {
+      debugPrint("無法啟動 iOS 原生音訊: $e");
+    }
+  }
+
+  // 原生 iOS 音訊停止
+  void _stopNativeListening() async {
+    try {
+      await _methodChannel.invokeMethod('stop');
+      print("iOS 原生音訊監聽已停止");
+    } catch (e) {
+      debugPrint("無法停止 iOS 原生音訊: $e");
+    }
+  }
+
+  // 原有的 NoiseMeter 啟動邏輯 (僅 Android)
+  void _startNoiseMeterListening() {
+    _noiseMeter ??= NoiseMeter();
+    try {
+      _noiseSubscription = _noiseMeter!.noiseStream.listen((noiseEvent) {
+        setState(() {
+          _soundLevel = noiseEvent.meanDecibel;
+          _processAudioLevel();
+        });
+      }, onError: (e) {
+        debugPrint('Android NoiseMeter 錯誤: $e');
+        _stopListening();
+      });
+    } catch (e) {
+      debugPrint('啟動 Android NoiseMeter 時發生錯誤: $e');
+      _stopListening();
+    }
+  }
+
+  // 處理音量的核心邏輯 (峰值檢測)
+  void _processAudioLevel() {
+    switch (_detectionState) {
+      case DetectionState.IDLE:
+        if (_soundLevel > _dBThreshold) {
+          _detectionState = DetectionState.RISING;
+        }
+        break;
+
+      case DetectionState.RISING:
+        // 當音量開始下降時，視為一個波峰的結束
+        if (_soundLevel < _lastSoundLevel) {
+          _wordCount++;
+          _detectionState = DetectionState.FALLING;
+          // 觸發一次動畫
+          _animationController.forward().then((_) {
+            // 在動畫結束後，如果還在 FALLING 狀態，則恢復
+            if (_detectionState == DetectionState.FALLING) {
+              _animationController.reverse();
+            }
+          });
+        }
+        break;
+
+      case DetectionState.FALLING:
+        if (_soundLevel < _dBThreshold) {
+          _detectionState = DetectionState.IDLE;
+        }
+        break;
+    }
+    _lastSoundLevel = _soundLevel;
   }
 
   void _resetValues() {
     setState(() {
       _wordCount = 0;
       _soundLevel = 0.0;
-      _hasAddedWord = false;
-      _remainingTime = 10; // 重置倒數
+      _remainingTime = 10;
+      _detectionState = DetectionState.IDLE;
+      _lastSoundLevel = 0.0;
     });
   }
 
@@ -1103,8 +1027,13 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
   void dispose() {
     //取消動作
     _noiseSubscription?.cancel();
+    _nativeAudioSubscription?.cancel(); // 取消原生監聽
     _animationController.dispose();
     _countdownTimer?.cancel();
+    // 如果仍在監聽，確保停止
+    if (_isListening) {
+      _stopListening();
+    }
     super.dispose();
   }
 }
