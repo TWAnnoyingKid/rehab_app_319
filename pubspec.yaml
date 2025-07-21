@@ -54,8 +54,6 @@ dependencies:
   workmanager: ^0.5.1
   flutter_local_notifications: ^14.0.0+2
   file_picker: ^5.2.10
-  audio_waveforms: ^1.0.4
-  just_audio: ^0.9.33
   fl_chart: ^0.62.0
   pytorch_mobile: ^0.2.2
   image: ^4.5.4

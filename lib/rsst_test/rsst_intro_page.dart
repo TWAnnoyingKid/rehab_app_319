@@ -455,7 +455,7 @@ class _RsstIntroPageState extends State<RsstIntroPage> {
                     ),
                   ).animate().fade(duration: 500.ms).scale(duration: 500.ms),
 
-                  /* 上傳音檔按鈕 測試模型用 部屬時刪除
+                  //上傳音檔按鈕 測試模型用 部屬時刪除
                   Padding(
                     padding: EdgeInsetsDirectional.fromSTEB(0, 0, 0, 30),
                     child: ElevatedButton.icon(
@@ -466,7 +466,8 @@ class _RsstIntroPageState extends State<RsstIntroPage> {
                       ),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Color(0xFF2E5AAC),
-                        padding: EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+                        padding:
+                            EdgeInsets.symmetric(horizontal: 20, vertical: 15),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(20),
                         ),
@@ -494,7 +495,6 @@ class _RsstIntroPageState extends State<RsstIntroPage> {
                         ],
                       ),
                     ),
-                  */
                 ],
               ),
             ),

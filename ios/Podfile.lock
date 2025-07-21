@@ -1,9 +1,5 @@
 PODS:
-  - audio_session (0.0.1):
-    - Flutter
   - audio_streamer (0.0.1):
-    - Flutter
-  - audio_waveforms (0.0.1):
     - Flutter
   - audioplayers_darwin (0.0.1):
     - Flutter
@@ -160,8 +156,6 @@ PODS:
   - GTMSessionFetcher/Core (2.3.0)
   - image_picker_ios (0.0.1):
     - Flutter
-  - just_audio (0.0.1):
-    - Flutter
   - LibTorch (1.8.0):
     - LibTorch/Core (= 1.8.0)
   - LibTorch/Core (1.8.0):
@@ -267,9 +261,7 @@ PODS:
     - Flutter
 
 DEPENDENCIES:
-  - audio_session (from `.symlinks/plugins/audio_session/ios`)
   - audio_streamer (from `.symlinks/plugins/audio_streamer/ios`)
-  - audio_waveforms (from `.symlinks/plugins/audio_waveforms/ios`)
   - audioplayers_darwin (from `.symlinks/plugins/audioplayers_darwin/ios`)
   - camera_avfoundation (from `.symlinks/plugins/camera_avfoundation/ios`)
   - file_picker (from `.symlinks/plugins/file_picker/ios`)
@@ -286,7 +278,6 @@ DEPENDENCIES:
   - GoogleMLKit/ImageLabeling (~> 4.0.0)
   - GoogleMLKit/PoseDetection (~> 4.0.0)
   - image_picker_ios (from `.symlinks/plugins/image_picker_ios/ios`)
-  - just_audio (from `.symlinks/plugins/just_audio/ios`)
   - onnxruntime (from `.symlinks/plugins/onnxruntime/ios`)
   - path_provider_foundation (from `.symlinks/plugins/path_provider_foundation/darwin`)
   - permission_handler_apple (from `.symlinks/plugins/permission_handler_apple/ios`)
@@ -337,12 +328,8 @@ SPEC REPOS:
     - Try
 
 EXTERNAL SOURCES:
-  audio_session:
-    :path: ".symlinks/plugins/audio_session/ios"
   audio_streamer:
     :path: ".symlinks/plugins/audio_streamer/ios"
-  audio_waveforms:
-    :path: ".symlinks/plugins/audio_waveforms/ios"
   audioplayers_darwin:
     :path: ".symlinks/plugins/audioplayers_darwin/ios"
   camera_avfoundation:
@@ -369,8 +356,6 @@ EXTERNAL SOURCES:
     :path: ".symlinks/plugins/google_mlkit_pose_detection/ios"
   image_picker_ios:
     :path: ".symlinks/plugins/image_picker_ios/ios"
-  just_audio:
-    :path: ".symlinks/plugins/just_audio/ios"
   onnxruntime:
     :path: ".symlinks/plugins/onnxruntime/ios"
   path_provider_foundation:
@@ -395,9 +380,7 @@ EXTERNAL SOURCES:
     :path: ".symlinks/plugins/workmanager/ios"
 
 SPEC CHECKSUMS:
-  audio_session: 088d2483ebd1dc43f51d253d4a1c517d9a2e7207
   audio_streamer: af49e73eb66f71c4eeabb4bbcb05f122d03a6709
-  audio_waveforms: cd736909ebc6b6a164eb74701d8c705ce3241e1c
   audioplayers_darwin: 877d9a4d06331c5c374595e46e16453ac7eafa40
   camera_avfoundation: dd002b0330f4981e1bbcb46ae9b62829237459a4
   DKImagePickerController: 946cec48c7873164274ecc4624d19e3da4c1ef3c
@@ -424,7 +407,6 @@ SPEC CHECKSUMS:
   GoogleUtilitiesComponents: 679b2c881db3b615a2777504623df6122dd20afe
   GTMSessionFetcher: 3a63d75eecd6aa32c2fc79f578064e1214dfdec2
   image_picker_ios: c560581cceedb403a6ff17f2f816d7fea1421fc1
-  just_audio: baa7252489dbcf47a4c7cc9ca663e9661c99aafa
   LibTorch: d7724112589515bedd5eadf14a9db5b1d62d8a34
   MLImage: 7bb7c4264164ade9bf64f679b40fb29c8f33ee9b
   MLKitCommon: c1b791c3e667091918d91bda4bba69a91011e390

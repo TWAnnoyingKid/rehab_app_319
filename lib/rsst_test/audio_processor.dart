@@ -8,9 +8,9 @@ import 'package:fftea/fftea.dart';
 import 'package:path/path.dart' as path_util;
 
 class AudioSegment {
-  final String path;      // 分段音檔的儲存路徑
+  final String path; // 分段音檔的儲存路徑
   final double startTime; // 開始時間（秒）
-  final double endTime;   // 結束時間（秒）
+  final double endTime; // 結束時間（秒）
   final Uint8List? waveformData; // 波形數據（如有）
 
   AudioSegment({
@@ -22,18 +22,18 @@ class AudioSegment {
 }
 
 class AudioProcessor {
-  static const int sampleRate = 44100;  // 標準採樣率
+  static const int sampleRate = 44100; // 標準採樣率
   static const double windowSize = 0.5; // 窗口大小（秒）
-  static const double hopSize = 0.1;    // 步長（秒）
+  static const double hopSize = 0.1; // 步長（秒）
 
   // 巴特沃斯濾波器參數
-  static const double butterLowCut = 100.0;  // 低頻截止 (Hz)
+  static const double butterLowCut = 100.0; // 低頻截止 (Hz)
   static const double butterHighCut = 3500.0; // 高頻截止 (Hz)
-  static const int butterOrder = 5;           // 濾波器階數
+  static const int butterOrder = 5; // 濾波器階數
 
   // 頻譜閘控參數
   static const double noiseReductionStrength = 0.7; // 降噪強度 (0-1)
-  static const int fftWindowSize = 2048;            // FFT窗口大小
+  static const int fftWindowSize = 2048; // FFT窗口大小
 
   /// 處理音頻 - 自動執行採樣率調整、降噪和分割
   static Future<Map<String, dynamic>> processAudio(String audioPath) async {
@@ -56,7 +56,8 @@ class AudioProcessor {
       int channels = wavInfo['channels'] as int;
       int bitsPerSample = wavInfo['bitsPerSample'] as int;
 
-      print('原始音頻信息: 採樣率=$originalSampleRate Hz, 聲道數=$channels, 位元深度=$bitsPerSample bits');
+      print(
+          '原始音頻信息: 採樣率=$originalSampleRate Hz, 聲道數=$channels, 位元深度=$bitsPerSample bits');
 
       // 4. 提取PCM數據
       Uint8List pcmData = fileBytes.sublist(headerSize);
@@ -69,10 +70,12 @@ class AudioProcessor {
         print('採樣率不是44.1kHz，正在進行重新採樣...');
 
         // 將PCM數據轉換為浮點數組
-        Float64List originalSamples = _convertPcmToFloat(pcmData, channels, bitsPerSample);
+        Float64List originalSamples =
+            _convertPcmToFloat(pcmData, channels, bitsPerSample);
 
         // 進行採樣率轉換
-        adjustedSamples = _resampleAudio(originalSamples, originalSampleRate, sampleRate);
+        adjustedSamples =
+            _resampleAudio(originalSamples, originalSampleRate, sampleRate);
         effectiveSampleRate = sampleRate; // 更新有效採樣率
 
         print('重新採樣完成：從 $originalSampleRate Hz 轉換為 $sampleRate Hz');
@@ -94,7 +97,8 @@ class AudioProcessor {
       });
 
       // 7. 將浮點數組轉回PCM數據
-      Uint8List denoisedPcm = _convertFloatToPcm(denoisedSamples, channels, bitsPerSample);
+      Uint8List denoisedPcm =
+          _convertFloatToPcm(denoisedSamples, channels, bitsPerSample);
 
       // 8. 保存降噪後的完整音頻
       final tempDir = await getTemporaryDirectory();
@@ -134,7 +138,6 @@ class AudioProcessor {
         'bitsPerSample': bitsPerSample,
         'totalSegments': segments.length,
       };
-
     } catch (e) {
       print('處理音頻時出錯: $e');
       rethrow;
@@ -156,24 +159,35 @@ class AudioProcessor {
     }
 
     // 解析基本信息
-    int fileSize = fileBytes[4] | (fileBytes[5] << 8) | (fileBytes[6] << 16) | (fileBytes[7] << 24);
+    int fileSize = fileBytes[4] |
+        (fileBytes[5] << 8) |
+        (fileBytes[6] << 16) |
+        (fileBytes[7] << 24);
     int format = fileBytes[20] | (fileBytes[21] << 8);
     int channels = fileBytes[22] | (fileBytes[23] << 8);
-    int sampleRate = fileBytes[24] | (fileBytes[25] << 8) | (fileBytes[26] << 16) | (fileBytes[27] << 24);
-    int byteRate = fileBytes[28] | (fileBytes[29] << 8) | (fileBytes[30] << 16) | (fileBytes[31] << 24);
+    int sampleRate = fileBytes[24] |
+        (fileBytes[25] << 8) |
+        (fileBytes[26] << 16) |
+        (fileBytes[27] << 24);
+    int byteRate = fileBytes[28] |
+        (fileBytes[29] << 8) |
+        (fileBytes[30] << 16) |
+        (fileBytes[31] << 24);
     int blockAlign = fileBytes[32] | (fileBytes[33] << 8);
     int bitsPerSample = fileBytes[34] | (fileBytes[35] << 8);
 
     // 查找數據塊起始位置
-    int headerSize = 44;  // 標準WAV頭部大小
+    int headerSize = 44; // 標準WAV頭部大小
 
     if (String.fromCharCodes(fileBytes.sublist(36, 40)) != 'data') {
       // 如果不是標準布局，找到data塊
       int pos = 36;
       while (pos < fileBytes.length - 8) {
         String chunkId = String.fromCharCodes(fileBytes.sublist(pos, pos + 4));
-        int chunkSize = fileBytes[pos + 4] | (fileBytes[pos + 5] << 8) |
-        (fileBytes[pos + 6] << 16) | (fileBytes[pos + 7] << 24);
+        int chunkSize = fileBytes[pos + 4] |
+            (fileBytes[pos + 5] << 8) |
+            (fileBytes[pos + 6] << 16) |
+            (fileBytes[pos + 7] << 24);
 
         if (chunkId == 'data') {
           headerSize = pos + 8;
@@ -196,7 +210,8 @@ class AudioProcessor {
   }
 
   /// 重新採樣音頻
-  static Float64List _resampleAudio(Float64List samples, int originalSampleRate, int targetSampleRate) {
+  static Float64List _resampleAudio(
+      Float64List samples, int originalSampleRate, int targetSampleRate) {
     // 如果採樣率相同，則直接返回
     if (originalSampleRate == targetSampleRate) {
       return Float64List.fromList(samples);
@@ -231,7 +246,8 @@ class AudioProcessor {
   }
 
   /// 將PCM數據轉換為浮點數數組進行處理
-  static Float64List _convertPcmToFloat(Uint8List pcmData, int channels, int bitsPerSample) {
+  static Float64List _convertPcmToFloat(
+      Uint8List pcmData, int channels, int bitsPerSample) {
     int bytesPerSample = bitsPerSample ~/ 8;
     int samplesCount = pcmData.length ~/ (bytesPerSample * channels);
     Float64List result = Float64List(samplesCount);
@@ -261,7 +277,8 @@ class AudioProcessor {
   }
 
   /// 將浮點數數組轉回PCM數據
-  static Uint8List _convertFloatToPcm(Float64List samples, int channels, int bitsPerSample) {
+  static Uint8List _convertFloatToPcm(
+      Float64List samples, int channels, int bitsPerSample) {
     int bytesPerSample = bitsPerSample ~/ 8;
     Uint8List result = Uint8List(samples.length * channels * bytesPerSample);
 
@@ -311,31 +328,17 @@ class AudioProcessor {
     int fftWindowSize = params['fftWindowSize'] as int;
 
     // 1. 首先應用巴特沃斯帶通濾波
-    Float64List filteredSamples = _butterworthBandpassFilter(
-        samples,
-        sampleRate,
-        lowCut,
-        highCut,
-        order
-    );
+    Float64List filteredSamples =
+        _butterworthBandpassFilter(samples, sampleRate, lowCut, highCut, order);
 
     // 2. 然後應用頻譜閘控降噪
     return _spectralGateNoiseReduction(
-        filteredSamples,
-        sampleRate,
-        fftWindowSize,
-        noiseReductionStrength
-    );
+        filteredSamples, sampleRate, fftWindowSize, noiseReductionStrength);
   }
 
   /// 應用巴特沃斯帶通濾波器
-  static Float64List _butterworthBandpassFilter(
-      Float64List samples,
-      int sampleRate,
-      double lowCut,
-      double highCut,
-      int order
-      ) {
+  static Float64List _butterworthBandpassFilter(Float64List samples,
+      int sampleRate, double lowCut, double highCut, int order) {
     // 實現數字巴特沃斯濾波器
     // 我們使用二階節(biquad)分段實現高階濾波器
 
@@ -379,12 +382,8 @@ class AudioProcessor {
   }
 
   /// 應用頻譜閘控降噪
-  static Float64List _spectralGateNoiseReduction(
-      Float64List samples,
-      int sampleRate,
-      int fftWindowSize,
-      double reductionStrength
-      ) {
+  static Float64List _spectralGateNoiseReduction(Float64List samples,
+      int sampleRate, int fftWindowSize, double reductionStrength) {
     int samplesLength = samples.length;
     Float64List result = Float64List(samplesLength);
 
@@ -393,10 +392,11 @@ class AudioProcessor {
     Float64List noiseProfile = samples.sublist(0, noiseLength);
 
     // 計算噪聲功率頻譜
-    Float64List noiseSpectrum = _calculateAveragePowerSpectrum(noiseProfile, fftWindowSize);
+    Float64List noiseSpectrum =
+        _calculateAveragePowerSpectrum(noiseProfile, fftWindowSize);
 
     // 處理音頻段落
-    int hopSize = fftWindowSize ~/ 4;  // 75%重疊
+    int hopSize = fftWindowSize ~/ 4; // 75%重疊
     int numFrames = ((samplesLength - fftWindowSize) / hopSize).floor() + 1;
 
     // 創建Hann窗函數
@@ -407,7 +407,8 @@ class AudioProcessor {
 
     // 創建輸出緩衝區，並以0初始化
     Float64List outputBuffer = Float64List(samplesLength + fftWindowSize);
-    Float64List normalizationBuffer = Float64List(samplesLength + fftWindowSize);
+    Float64List normalizationBuffer =
+        Float64List(samplesLength + fftWindowSize);
 
     // 逐幀處理
     for (int frameIndex = 0; frameIndex < numFrames; frameIndex++) {
@@ -431,8 +432,8 @@ class AudioProcessor {
 
       for (int i = 0; i < complexSpectrum.length; i++) {
         Float64x2 complex = complexSpectrum[i];
-        double real = complex.x;  // 實部
-        double imag = complex.y;  // 虛部
+        double real = complex.x; // 實部
+        double imag = complex.y; // 虛部
 
         double magnitude = math.sqrt(real * real + imag * imag);
         double phase = math.atan2(imag, real);
@@ -498,7 +499,8 @@ class AudioProcessor {
   }
 
   /// 計算平均功率頻譜
-  static Float64List _calculateAveragePowerSpectrum(Float64List samples, int fftSize) {
+  static Float64List _calculateAveragePowerSpectrum(
+      Float64List samples, int fftSize) {
     var fft = FFT(fftSize);
     // 初始化功率頻譜陣列
     Float64List powerSpectrum = Float64List(fftSize ~/ 2 + 1);
@@ -556,7 +558,8 @@ class AudioProcessor {
   }
 
   /// 將音頻分割成指定的窗口大小與步長（不限制數量）
-  static Future<List<AudioSegment>> segmentAudio(String audioPath, {int? maxSegments}) async {
+  static Future<List<AudioSegment>> segmentAudio(String audioPath,
+      {int? maxSegments}) async {
     try {
       File audioFile = File(audioPath);
       if (!await audioFile.exists()) {
@@ -564,10 +567,13 @@ class AudioProcessor {
       }
 
       // 讀取WAV檔案頭部
-      Uint8List headerBytes = await audioFile.openRead(0, 44).fold<BytesBuilder>(
-        BytesBuilder(),
+      Uint8List headerBytes = await audioFile
+          .openRead(0, 44)
+          .fold<BytesBuilder>(
+            BytesBuilder(),
             (builder, bytes) => builder..add(bytes),
-      ).then((builder) => builder.toBytes());
+          )
+          .then((builder) => builder.toBytes());
 
       // 解析WAV檔案頭部
       Map<String, dynamic> wavInfo = _parseWavHeader(headerBytes);
@@ -592,10 +598,13 @@ class AudioProcessor {
       // 計算總樣本數和可以分割的段數
       int bytesPerSample = bitsPerSample ~/ 8 * channels;
       int totalSamples = pcmData.length ~/ bytesPerSample;
-      int totalSegments = ((totalSamples - windowSamples) / hopSamples).floor() + 1;
+      int totalSegments =
+          ((totalSamples - windowSamples) / hopSamples).floor() + 1;
 
       // 檢查是否有分段數限制
-      int segmentsToProcess = maxSegments != null ? math.min(totalSegments, maxSegments) : totalSegments;
+      int segmentsToProcess = maxSegments != null
+          ? math.min(totalSegments, maxSegments)
+          : totalSegments;
 
       print('總樣本數: $totalSamples');
       print('窗口樣本數: $windowSamples');
@@ -608,7 +617,8 @@ class AudioProcessor {
       if (await segmentsDir.exists()) {
         // 清空目錄而不是刪除整個目錄
         await for (var entity in segmentsDir.list()) {
-          if (entity is File && path_util.basename(entity.path).startsWith('segment_')) {
+          if (entity is File &&
+              path_util.basename(entity.path).startsWith('segment_')) {
             await entity.delete();
           }
         }
@@ -639,7 +649,8 @@ class AudioProcessor {
         if (endByte > pcmData.length) endByte = pcmData.length;
 
         // 提取這個時間窗口的PCM數據
-        Uint8List segmentPcm = Uint8List.fromList(pcmData.sublist(startByte, endByte));
+        Uint8List segmentPcm =
+            Uint8List.fromList(pcmData.sublist(startByte, endByte));
 
         // 生成新的WAV檔案頭部
         int segmentDataSize = segmentPcm.length;
@@ -666,7 +677,8 @@ class AudioProcessor {
         double endTime = endSample / sampleRateValue;
 
         // 提取波形數據供視覺化使用
-        Uint8List? waveformData = _extractWaveformData(segmentPcm, channels, bitsPerSample, 100);
+        Uint8List? waveformData =
+            _extractWaveformData(segmentPcm, channels, bitsPerSample, 100);
 
         // 添加到結果列表
         segments.add(AudioSegment(
@@ -690,15 +702,13 @@ class AudioProcessor {
     }
   }
 
-
-
   // 創建WAV檔案頭部
   static Uint8List _createWavHeader({
-    required int fileSize,     // 完整檔案大小（位元組）
-    required int sampleRate,   // 取樣率
-    required int channels,     // 聲道數
-    required int bitsPerSample,// 位元深度
-    required int dataSize,     // PCM資料大小（位元組）
+    required int fileSize, // 完整檔案大小（位元組）
+    required int sampleRate, // 取樣率
+    required int channels, // 聲道數
+    required int bitsPerSample, // 位元深度
+    required int dataSize, // PCM資料大小（位元組）
   }) {
     Uint8List header = Uint8List(44);
 
@@ -710,7 +720,8 @@ class AudioProcessor {
     header[7] = (fileSize >> 24) & 0xFF;
 
     // WAVE 標頭
-    header.setAll(8, [0x57, 0x41, 0x56, 0x45, 0x66, 0x6D, 0x74, 0x20]); // "WAVEfmt "
+    header.setAll(
+        8, [0x57, 0x41, 0x56, 0x45, 0x66, 0x6D, 0x74, 0x20]); // "WAVEfmt "
 
     // 格式區段
     header[16] = 16; // 格式區段大小 (16 for PCM)
@@ -758,11 +769,11 @@ class AudioProcessor {
 
   // 從PCM數據提取波形數據（用於視覺化）
   static Uint8List? _extractWaveformData(
-      Uint8List pcmData,
-      int channels,
-      int bitsPerSample,
-      int samplesCount, // 波形數據點數
-      ) {
+    Uint8List pcmData,
+    int channels,
+    int bitsPerSample,
+    int samplesCount, // 波形數據點數
+  ) {
     try {
       // 如果PCM數據過小，則返回null
       if (pcmData.length < channels * (bitsPerSample ~/ 8)) {
@@ -787,7 +798,8 @@ class AudioProcessor {
       // 從PCM數據提取波形（僅使用第一個聲道的數據）
       for (int i = 0; i < samplesCount; i++) {
         int sampleStart = i * samplesPerPoint;
-        int sampleEnd = math.min(sampleStart + samplesPerPoint, samplesPerChannel);
+        int sampleEnd =
+            math.min(sampleStart + samplesPerPoint, samplesPerChannel);
 
         if (sampleStart >= samplesPerChannel) break;
 
@@ -815,7 +827,8 @@ class AudioProcessor {
           }
 
           // 歸一化到 -1.0 到 1.0
-          double normalizedValue = sampleValue / (bitsPerSample == 16 ? 32768.0 : 128.0);
+          double normalizedValue =
+              sampleValue / (bitsPerSample == 16 ? 32768.0 : 128.0);
           sum += normalizedValue.abs(); // 使用絕對值來計算平均振幅
           count++;
         }
@@ -843,7 +856,8 @@ class AudioProcessor {
   }
 
   /// 公開將PCM數據轉換為浮點數數組的方法
-  static Float64List convertPcmToFloat(Uint8List pcmData, int channels, int bitsPerSample) {
+  static Float64List convertPcmToFloat(
+      Uint8List pcmData, int channels, int bitsPerSample) {
     return _convertPcmToFloat(pcmData, channels, bitsPerSample);
   }
 
