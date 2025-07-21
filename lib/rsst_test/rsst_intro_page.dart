@@ -8,6 +8,9 @@ import '/flutter_flow/flutter_flow_theme.dart';
 import 'rsst_test_page.dart';
 import 'rsst_result_page.dart';
 
+// 測驗介紹和準備頁面
+// 處理權限請求和測驗說明
+// 提供音檔上傳功能（測試用）
 class RsstIntroPage extends StatefulWidget {
   const RsstIntroPage({Key? key}) : super(key: key);
 

@@ -74,7 +74,8 @@ img.Image? _convertBGRA8888ToRGBIsolate(_ImageConversionParams params) {
 
           image.setPixelRgb(col, row, r, g, b);
         } else {
-          print('像素索引超出範圍: row=$row, col=$col, pixelIndex=$pixelIndex, bufferLength=${buffer.length}');
+          print(
+              '像素索引超出範圍: row=$row, col=$col, pixelIndex=$pixelIndex, bufferLength=${buffer.length}');
           image.setPixelRgb(col, row, 0, 0, 0);
         }
       }
@@ -573,7 +574,8 @@ class ROIProcessor {
       final buffer = plane.bytes;
       final bytesPerRow = plane.bytesPerRow;
 
-      print('BGRA8888平面資訊: bytesPerRow=$bytesPerRow, buffer長度=${buffer.length}');
+      print(
+          'BGRA8888平面資訊: bytesPerRow=$bytesPerRow, buffer長度=${buffer.length}');
       print('計算的理論行寬: ${width * 4}, 實際行寬: $bytesPerRow');
 
       // 創建RGB圖像
@@ -598,7 +600,8 @@ class ROIProcessor {
             image.setPixelRgb(col, row, r, g, b);
           } else {
             // 如果索引超出範圍，設置為黑色
-            print('像素索引超出範圍: row=$row, col=$col, pixelIndex=$pixelIndex, bufferLength=${buffer.length}');
+            print(
+                '像素索引超出範圍: row=$row, col=$col, pixelIndex=$pixelIndex, bufferLength=${buffer.length}');
             image.setPixelRgb(col, row, 0, 0, 0);
           }
         }
@@ -773,7 +776,148 @@ class ROIProcessor {
     }
   }
 
-  // iOS 特定的 ROI 處理增強方法
+  // 新增: iOS 專用的顯示 ROI 圖像方法 - 修正座標轉換
+  static Future<Image?> createDisplayableROIImageForIOS(
+      CameraImage cameraImage, Rect roi, CameraDescription camera,
+      {Size? screenSize}) async {
+    try {
+      print('=== iOS 顯示用 ROI 圖像處理開始 ===');
+
+      // 轉換為標準圖像格式
+      final imgLib = await _convertCamToImage(cameraImage);
+      if (imgLib == null) {
+        print('iOS 顯示用 ROI 處理失敗: 圖像轉換返回 null');
+        return null;
+      }
+
+      // 使用傳入的螢幕尺寸或預設值
+      final actualScreenWidth = screenSize?.width ?? 400.0;
+      final actualScreenHeight = screenSize?.height ?? 800.0;
+
+      print('iOS 顯示用 - 轉換後圖像尺寸: ${imgLib.width}x${imgLib.height}');
+      print(
+          'iOS 顯示用 - 螢幕尺寸: ${actualScreenWidth.toInt()}x${actualScreenHeight.toInt()}');
+      print(
+          'iOS 顯示用 - 原始ROI框 (UI坐標): ${roi.left}, ${roi.top}, ${roi.width}x${roi.height}');
+
+      img.Image processedImage = imgLib;
+
+      // 根據相機感測器方向和鏡頭方向進行座標轉換
+      final int sensorOrientation = camera.sensorOrientation;
+      final bool isFrontCamera =
+          camera.lensDirection == CameraLensDirection.front;
+
+      print('iOS 顯示用 - 相機感測器方向: ${sensorOrientation}度, 前置相機: $isFrontCamera');
+
+      // 根據 iOS 前置相機的特性進行處理
+      if (isFrontCamera && sensorOrientation == 270) {
+        // iOS 前置相機通常是 270 度，需要逆時針旋轉 90 度
+        processedImage = img.copyRotate(imgLib, angle: -90);
+        print('iOS 顯示用 - 前置相機逆時針旋轉90度');
+      } else if (!isFrontCamera && sensorOrientation == 90) {
+        // iOS 後置相機通常是 90 度，需要順時針旋轉 90 度
+        processedImage = img.copyRotate(imgLib, angle: 90);
+        print('iOS 顯示用 - 後置相機順時針旋轉90度');
+      }
+
+      // 前置相機需要水平翻轉
+      if (isFrontCamera) {
+        processedImage = img.flipHorizontal(processedImage);
+        print('iOS 顯示用 - 前置相機水平翻轉');
+      }
+
+      print(
+          'iOS 顯示用 - 處理後圖像尺寸: ${processedImage.width}x${processedImage.height}');
+
+      // 計算正確的座標轉換
+      // 對於 iOS 前置相機，需要特殊的座標映射
+      double imageWidth = processedImage.width.toDouble();
+      double imageHeight = processedImage.height.toDouble();
+
+      // 計算縮放比例 - 考慮圖像可能被裁剪以適應螢幕比例
+      double scaleX = imageWidth / actualScreenWidth;
+      double scaleY = imageHeight / actualScreenHeight;
+
+      // 使用較小的縮放比例以確保完整顯示
+      double scale = math.min(scaleX, scaleY);
+
+      print('iOS 顯示用 - 縮放比例: scaleX=$scaleX, scaleY=$scaleY, 選用=$scale');
+
+      // 計算圖像在螢幕上的實際顯示區域
+      double displayImageWidth = imageWidth / scale;
+      double displayImageHeight = imageHeight / scale;
+
+      // 計算圖像在螢幕上的偏移量（居中顯示）
+      double offsetX = (actualScreenWidth - displayImageWidth) / 2;
+      double offsetY = (actualScreenHeight - displayImageHeight) / 2;
+
+      print('iOS 顯示用 - 圖像顯示區域: ${displayImageWidth}x$displayImageHeight');
+      print('iOS 顯示用 - 圖像偏移量: offsetX=$offsetX, offsetY=$offsetY');
+
+      // 將 UI 座標轉換為圖像座標
+      double adjustedRoiLeft = (roi.left - offsetX) * scale;
+      double adjustedRoiTop = (roi.top - offsetY) * scale;
+      double adjustedRoiWidth = roi.width * scale;
+      double adjustedRoiHeight = roi.height * scale;
+
+      print(
+          'iOS 顯示用 - 調整後ROI座標: left=$adjustedRoiLeft, top=$adjustedRoiTop, width=$adjustedRoiWidth, height=$adjustedRoiHeight');
+
+      // 轉換為整數並確保在圖像邊界內
+      final int roiX =
+          adjustedRoiLeft.toInt().clamp(0, processedImage.width - 10);
+      final int roiY =
+          adjustedRoiTop.toInt().clamp(0, processedImage.height - 10);
+      final int roiWidth =
+          adjustedRoiWidth.toInt().clamp(10, processedImage.width - roiX);
+      final int roiHeight =
+          adjustedRoiHeight.toInt().clamp(10, processedImage.height - roiY);
+
+      print(
+          'iOS 顯示用 - 最終ROI整數座標: x=$roiX, y=$roiY, width=$roiWidth, height=$roiHeight');
+
+      // 在圖像上標記ROI位置
+      img.Image markedImage = img.Image.from(processedImage);
+      _drawROIRectangle(markedImage, roiX, roiY, roiWidth, roiHeight);
+
+      // 裁剪ROI
+      final croppedImage = img.copyCrop(
+        processedImage,
+        x: roiX,
+        y: roiY,
+        width: roiWidth,
+        height: roiHeight,
+      );
+
+      print('iOS 顯示用 - ROI 裁剪成功: ${croppedImage.width}x${croppedImage.height}');
+
+      // 保存調試圖像
+      final tempDir = await getTemporaryDirectory();
+
+      // 保存帶標記的完整圖像
+      final debugMarkedFile = io.File(
+          '${tempDir.path}/ios_display_marked_${DateTime.now().millisecondsSinceEpoch}.jpg');
+      await debugMarkedFile.writeAsBytes(img.encodeJpg(markedImage));
+      print('iOS 顯示用 - 標記圖像已保存至: ${debugMarkedFile.path}');
+
+      // 保存裁剪後的ROI圖像
+      final tempFile = io.File(
+          '${tempDir.path}/ios_display_roi_${DateTime.now().millisecondsSinceEpoch}.jpg');
+      await tempFile.writeAsBytes(img.encodeJpg(croppedImage));
+      print('iOS 顯示用 - ROI 圖像已保存至: ${tempFile.path}');
+
+      return Image.file(
+        tempFile,
+        fit: BoxFit.cover,
+      );
+    } catch (e, stackTrace) {
+      print('iOS 顯示用 ROI 處理失敗: $e');
+      print('錯誤堆疊: $stackTrace');
+      return null;
+    }
+  }
+
+  // iOS 特定的 ROI 處理增強方法 - 修正座標轉換
   static Future<InputImage?> createROIInputImageForIOS(
       CameraImage cameraImage, Rect roi, CameraDescription camera,
       {Size? screenSize}) async {
@@ -782,7 +926,7 @@ class ROIProcessor {
       print('相機圖像格式: ${cameraImage.format.group}');
       print('相機圖像尺寸: ${cameraImage.width}x${cameraImage.height}');
       print('平面數量: ${cameraImage.planes.length}');
-      
+
       if (cameraImage.planes.isNotEmpty) {
         final plane = cameraImage.planes[0];
         print('第一個平面資訊:');
@@ -809,98 +953,109 @@ class ROIProcessor {
       print('ROI框尺寸 (UI坐標): ${roi.width}x${roi.height}');
       print('ROI框位置 (UI坐標): (${roi.left}, ${roi.top})');
 
-      img.Image originalImage = imgLib;
+      img.Image processedImage = imgLib;
 
-      // 根據相機旋轉調整圖像
-      final rotation =
-          InputImageRotationValue.fromRawValue(camera.sensorOrientation);
-      print('相機感測器方向: ${camera.sensorOrientation}度');
-      img.Image rotatedImage = originalImage;
+      // 根據相機感測器方向和鏡頭方向進行座標轉換
+      final int sensorOrientation = camera.sensorOrientation;
+      final bool isFrontCamera =
+          camera.lensDirection == CameraLensDirection.front;
 
-      if (rotation == InputImageRotation.rotation90deg) {
-        rotatedImage = img.copyRotate(originalImage, angle: 90);
-        print('圖像旋轉90度');
-      } else if (rotation == InputImageRotation.rotation180deg) {
-        rotatedImage = img.copyRotate(originalImage, angle: 180);
-        print('圖像旋轉180度');
-      } else if (rotation == InputImageRotation.rotation270deg) {
-        rotatedImage = img.copyRotate(originalImage, angle: 270);
-        print('圖像旋轉270度');
+      print('相機感測器方向: ${sensorOrientation}度, 前置相機: $isFrontCamera');
+
+      // 根據 iOS 前置相機的特性進行處理
+      if (isFrontCamera && sensorOrientation == 270) {
+        // iOS 前置相機通常是 270 度，需要逆時針旋轉 90 度
+        processedImage = img.copyRotate(imgLib, angle: -90);
+        print('前置相機逆時針旋轉90度');
+      } else if (!isFrontCamera && sensorOrientation == 90) {
+        // iOS 後置相機通常是 90 度，需要順時針旋轉 90 度
+        processedImage = img.copyRotate(imgLib, angle: 90);
+        print('後置相機順時針旋轉90度');
       }
 
-      // 根據鏡頭方向進行水平翻轉
-      if (camera.lensDirection == CameraLensDirection.front) {
-        rotatedImage = img.flipHorizontal(rotatedImage);
-        print('前置相機，進行水平翻轉');
+      // 前置相機需要水平翻轉
+      if (isFrontCamera) {
+        processedImage = img.flipHorizontal(processedImage);
+        print('前置相機水平翻轉');
       }
 
-      print('旋轉翻轉後圖像尺寸: ${rotatedImage.width}x${rotatedImage.height}');
+      print('處理後圖像尺寸: ${processedImage.width}x${processedImage.height}');
 
-      // iOS 特定的縮放計算 - 使用更保守的方法
-      double scaleX = rotatedImage.width / actualScreenWidth;
-      double scaleY = rotatedImage.height / actualScreenHeight;
-      
-      // 對於 iOS，使用最小縮放比例以確保 ROI 不會超出圖像邊界
-      double uniformScale = math.min(scaleX, scaleY);
-      
-      print('iOS 縮放比例: scaleX=$scaleX, scaleY=$scaleY');
-      print('iOS 使用最小縮放比例: $uniformScale');
+      // 計算正確的座標轉換
+      double imageWidth = processedImage.width.toDouble();
+      double imageHeight = processedImage.height.toDouble();
 
-      // 使用更保守的 ROI 定位
-      final int roiX = (roi.left * uniformScale).toInt().clamp(0, rotatedImage.width - 10);
-      final int roiY = (roi.top * uniformScale).toInt().clamp(0, rotatedImage.height - 10);
-      final int roiWidth = (roi.width * uniformScale).toInt().clamp(10, rotatedImage.width - roiX);
-      final int roiHeight = (roi.height * uniformScale).toInt().clamp(10, rotatedImage.height - roiY);
+      // 計算縮放比例 - 考慮圖像可能被裁剪以適應螢幕比例
+      double scaleX = imageWidth / actualScreenWidth;
+      double scaleY = imageHeight / actualScreenHeight;
 
-      print('iOS ROI 最終座標: x=$roiX, y=$roiY, width=$roiWidth, height=$roiHeight');
-      print('圖像邊界檢查: 圖像=${rotatedImage.width}x${rotatedImage.height}, ROI右下角=(${roiX + roiWidth}, ${roiY + roiHeight})');
+      // 使用較小的縮放比例以確保完整顯示
+      double scale = math.min(scaleX, scaleY);
+
+      print('縮放比例: scaleX=$scaleX, scaleY=$scaleY, 選用=$scale');
+
+      // 計算圖像在螢幕上的實際顯示區域
+      double displayImageWidth = imageWidth / scale;
+      double displayImageHeight = imageHeight / scale;
+
+      // 計算圖像在螢幕上的偏移量（居中顯示）
+      double offsetX = (actualScreenWidth - displayImageWidth) / 2;
+      double offsetY = (actualScreenHeight - displayImageHeight) / 2;
+
+      print('圖像顯示區域: ${displayImageWidth}x$displayImageHeight');
+      print('圖像偏移量: offsetX=$offsetX, offsetY=$offsetY');
+
+      // 將 UI 座標轉換為圖像座標
+      double adjustedRoiLeft = (roi.left - offsetX) * scale;
+      double adjustedRoiTop = (roi.top - offsetY) * scale;
+      double adjustedRoiWidth = roi.width * scale;
+      double adjustedRoiHeight = roi.height * scale;
+
+      print(
+          '調整後ROI座標: left=$adjustedRoiLeft, top=$adjustedRoiTop, width=$adjustedRoiWidth, height=$adjustedRoiHeight');
+
+      // 轉換為整數並確保在圖像邊界內
+      final int roiX =
+          adjustedRoiLeft.toInt().clamp(0, processedImage.width - 10);
+      final int roiY =
+          adjustedRoiTop.toInt().clamp(0, processedImage.height - 10);
+      final int roiWidth =
+          adjustedRoiWidth.toInt().clamp(10, processedImage.width - roiX);
+      final int roiHeight =
+          adjustedRoiHeight.toInt().clamp(10, processedImage.height - roiY);
+
+      print('最終ROI整數座標: x=$roiX, y=$roiY, width=$roiWidth, height=$roiHeight');
+      print(
+          '圖像邊界檢查: 圖像=${processedImage.width}x${processedImage.height}, ROI右下角=(${roiX + roiWidth}, ${roiY + roiHeight})');
 
       // 安全性檢查
-      if (roiX + roiWidth > rotatedImage.width || roiY + roiHeight > rotatedImage.height) {
-        print('iOS ROI 警告: ROI 超出圖像邊界');
-        // 重新調整 ROI 尺寸
-        final adjustedWidth = (rotatedImage.width - roiX - 5).clamp(10, roiWidth);
-        final adjustedHeight = (rotatedImage.height - roiY - 5).clamp(10, roiHeight);
-        print('調整後的 ROI 尺寸: ${adjustedWidth}x${adjustedHeight}');
-        
-        // 裁剪ROI
+      if (roiX + roiWidth > processedImage.width ||
+          roiY + roiHeight > processedImage.height ||
+          roiWidth < 10 ||
+          roiHeight < 10) {
+        print('iOS ROI 警告: ROI 超出邊界或尺寸太小，使用中心區域');
+
+        // 使用圖像中心的固定尺寸區域
+        final int centerX = processedImage.width ~/ 2;
+        final int centerY = processedImage.height ~/ 2;
+        final int fallbackWidth = math.min(200, processedImage.width - 20);
+        final int fallbackHeight = math.min(100, processedImage.height - 20);
+
+        final int fallbackX = (centerX - fallbackWidth ~/ 2)
+            .clamp(0, processedImage.width - fallbackWidth);
+        final int fallbackY = (centerY - fallbackHeight ~/ 2)
+            .clamp(0, processedImage.height - fallbackHeight);
+
+        print(
+            '使用備用ROI座標: x=$fallbackX, y=$fallbackY, width=$fallbackWidth, height=$fallbackHeight');
+
         final croppedImage = img.copyCrop(
-          rotatedImage,
-          x: roiX,
-          y: roiY,
-          width: adjustedWidth,
-          height: adjustedHeight,
+          processedImage,
+          x: fallbackX,
+          y: fallbackY,
+          width: fallbackWidth,
+          height: fallbackHeight,
         );
-        
-        print('iOS ROI 裁剪成功: ${croppedImage.width}x${croppedImage.height}');
-        
-        // 調整為224x224尺寸
-        final resizedImage = img.copyResize(
-          croppedImage,
-          width: 224,
-          height: 224,
-          interpolation: img.Interpolation.linear,
-        );
-
-        // 保存為臨時文件
-        final tempDir = await getTemporaryDirectory();
-        final tempFile = io.File(
-            '${tempDir.path}/ios_roi_${DateTime.now().millisecondsSinceEpoch}.jpg');
-        await tempFile.writeAsBytes(img.encodeJpg(resizedImage));
-
-        print('iOS ROI 圖像已保存: ${tempFile.path}');
-        return InputImage.fromFilePath(tempFile.path);
-      } else {
-        // 裁剪ROI
-        final croppedImage = img.copyCrop(
-          rotatedImage,
-          x: roiX,
-          y: roiY,
-          width: roiWidth,
-          height: roiHeight,
-        );
-
-        print('iOS ROI 裁剪成功: ${croppedImage.width}x${croppedImage.height}');
 
         // 調整為224x224尺寸
         final resizedImage = img.copyResize(
@@ -910,19 +1065,105 @@ class ROIProcessor {
           interpolation: img.Interpolation.linear,
         );
 
-        // 保存為臨時文件
+        // 保存調試圖像
         final tempDir = await getTemporaryDirectory();
+
         final tempFile = io.File(
-            '${tempDir.path}/ios_roi_${DateTime.now().millisecondsSinceEpoch}.jpg');
+            '${tempDir.path}/ios_roi_fallback_${DateTime.now().millisecondsSinceEpoch}.jpg');
         await tempFile.writeAsBytes(img.encodeJpg(resizedImage));
 
-        print('iOS ROI 圖像已保存: ${tempFile.path}');
+        print('iOS ROI 備用處理完成，圖像已保存: ${tempFile.path}');
         return InputImage.fromFilePath(tempFile.path);
       }
+
+      // 正常裁剪流程
+      final croppedImage = img.copyCrop(
+        processedImage,
+        x: roiX,
+        y: roiY,
+        width: roiWidth,
+        height: roiHeight,
+      );
+
+      print('iOS ROI 正常裁剪成功: ${croppedImage.width}x${croppedImage.height}');
+
+      // 調整為224x224尺寸
+      final resizedImage = img.copyResize(
+        croppedImage,
+        width: 224,
+        height: 224,
+        interpolation: img.Interpolation.linear,
+      );
+
+      // 保存調試圖像
+      final tempDir = await getTemporaryDirectory();
+
+      // 保存原始處理圖像用於調試
+      final debugOriginalFile = io.File(
+          '${tempDir.path}/debug_ios_processed_${DateTime.now().millisecondsSinceEpoch}.jpg');
+      await debugOriginalFile.writeAsBytes(img.encodeJpg(processedImage));
+      print('iOS 調試: 處理後圖像已保存至 ${debugOriginalFile.path}');
+
+      // 在原圖上標記ROI位置
+      img.Image markedImage = img.Image.from(processedImage);
+      _drawROIRectangle(markedImage, roiX, roiY, roiWidth, roiHeight);
+
+      final debugMarkedFile = io.File(
+          '${tempDir.path}/debug_ios_marked_${DateTime.now().millisecondsSinceEpoch}.jpg');
+      await debugMarkedFile.writeAsBytes(img.encodeJpg(markedImage));
+      print('iOS 調試: 標記圖像已保存至 ${debugMarkedFile.path}');
+
+      final tempFile = io.File(
+          '${tempDir.path}/ios_roi_${DateTime.now().millisecondsSinceEpoch}.jpg');
+      await tempFile.writeAsBytes(img.encodeJpg(resizedImage));
+
+      print('iOS ROI 圖像已保存: ${tempFile.path}');
+      return InputImage.fromFilePath(tempFile.path);
     } catch (e, stackTrace) {
       print('iOS ROI 處理失敗: $e');
       print('堆疊追蹤: $stackTrace');
       return null;
+    }
+  }
+
+  // 新增: 在圖像上繪製ROI矩形的輔助方法
+  static void _drawROIRectangle(
+      img.Image image, int x, int y, int width, int height) {
+    try {
+      // 繪製紅色邊框
+      final red = img.ColorRgb8(255, 0, 0);
+
+      // 繪製上邊框
+      for (int i = x; i < x + width && i < image.width; i++) {
+        if (y >= 0 && y < image.height) {
+          image.setPixel(i, y, red);
+        }
+      }
+
+      // 繪製下邊框
+      for (int i = x; i < x + width && i < image.width; i++) {
+        int bottomY = y + height - 1;
+        if (bottomY >= 0 && bottomY < image.height) {
+          image.setPixel(i, bottomY, red);
+        }
+      }
+
+      // 繪製左邊框
+      for (int i = y; i < y + height && i < image.height; i++) {
+        if (x >= 0 && x < image.width) {
+          image.setPixel(x, i, red);
+        }
+      }
+
+      // 繪製右邊框
+      for (int i = y; i < y + height && i < image.height; i++) {
+        int rightX = x + width - 1;
+        if (rightX >= 0 && rightX < image.width) {
+          image.setPixel(rightX, i, red);
+        }
+      }
+    } catch (e) {
+      print('繪製ROI矩形時出錯: $e');
     }
   }
 }

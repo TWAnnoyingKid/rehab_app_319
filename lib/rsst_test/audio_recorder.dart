@@ -5,7 +5,11 @@ import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+// 錄音功能實現
 class AudioRecorder {
+  // 管理麥克風權限和錄音流程
+  // 產生標準 44.1kHz WAV 格式音檔
+
   final Record _recorder = Record();
   bool _isRecorderInitialized = false;
   bool _isRecording = false;
@@ -78,7 +82,8 @@ class AudioRecorder {
 
     // 創建檔案路徑
     final directory = await getApplicationDocumentsDirectory();
-    _recordingPath = '${directory.path}/rsst_recording_${DateTime.now().millisecondsSinceEpoch}.wav';
+    _recordingPath =
+        '${directory.path}/rsst_recording_${DateTime.now().millisecondsSinceEpoch}.wav';
     print('檔案將保存至: $_recordingPath');
 
     try {
@@ -97,14 +102,16 @@ class AudioRecorder {
       // 開始錄音
       await _recorder.start(
         path: _recordingPath,
-        encoder: AudioEncoder.wav,  // WAV格式
-        bitRate: 16 * 1000,         // 16 kbps
-        samplingRate: _sampleRate,  // 44.1 kHz
-        numChannels: 1,             // 單聲道
+        encoder: AudioEncoder.wav, // WAV格式
+        bitRate: 16 * 1000, // 16 kbps
+        samplingRate: _sampleRate, // 44.1 kHz
+        numChannels: 1, // 單聲道
       );
 
       // 設置音量監聽器
-      _recorder.onAmplitudeChanged(const Duration(milliseconds: 300)).listen((amp) {
+      _recorder
+          .onAmplitudeChanged(const Duration(milliseconds: 300))
+          .listen((amp) {
         print('錄音中，音量: ${amp.current} dB, 峰值: ${amp.max} dB');
       });
 

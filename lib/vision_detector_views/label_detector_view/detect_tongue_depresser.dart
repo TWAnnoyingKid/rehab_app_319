@@ -500,7 +500,8 @@ class _ImageLabelViewState extends State<tongue_depresser> {
         // 如果成功處理ROI，使用第二個模型處理ROI圖像
         if (roiInputImage != null) {
           final result = await _secondImageLabeler.processImage(roiInputImage);
-          print('ROI 模型檢測結果: ${result.map((e) => '${e.label}(${e.confidence.toStringAsFixed(2)})').join(', ')}');
+          print(
+              'ROI 模型檢測結果: ${result.map((e) => '${e.label}(${e.confidence.toStringAsFixed(2)})').join(', ')}');
           return result;
         } else {
           print('ROI 處理失敗，返回空結果');
@@ -554,7 +555,7 @@ class Detector_tongue_depresser {
   DateTime? lastDetectTime1; // 第一個模型的時間戳
   DateTime? lastDetectTime2; // 第二個模型的時間戳
   int stateHoldDuration = 500; // 狀態維持時間，單位毫秒
-  
+
   // 添加第二個模型 'non' 檢測的延遲重置機制
   DateTime? firstNonDetectionTime; // 首次檢測到 'non' 的時間
   int nonDetectionDelay = 3000; // 'non' 檢測延遲時間，3秒（毫秒）
@@ -629,7 +630,7 @@ class Detector_tongue_depresser {
   // 取得第二個模型的穩定結果（考慮延遲重置機制）
   String getStableSecondModelResult() {
     final currentTime = DateTime.now();
-    
+
     // 如果當前結果不是排除的特徵
     if (SecondModelResult != SecondTargetExclusion) {
       lastSecondModelResult = SecondModelResult;
@@ -648,7 +649,8 @@ class Detector_tongue_depresser {
         print("第二個模型首次檢測到 'non'，開始 3 秒延遲計時");
       } else {
         // 檢查是否已經超過延遲時間
-        final timeSinceFirstNon = currentTime.difference(firstNonDetectionTime!).inMilliseconds;
+        final timeSinceFirstNon =
+            currentTime.difference(firstNonDetectionTime!).inMilliseconds;
         if (timeSinceFirstNon >= nonDetectionDelay) {
           shouldResetCounter = true;
           print("第二個模型 'non' 檢測延遲時間已到，標記需要重置計時器");
@@ -659,7 +661,8 @@ class Detector_tongue_depresser {
     // 如果之前檢測到有效特徵，且在維持時間內，繼續返回該特徵
     if (lastSecondModelResult != SecondTargetExclusion &&
         lastDetectTime2 != null) {
-      final difference = currentTime.difference(lastDetectTime2!).inMilliseconds;
+      final difference =
+          currentTime.difference(lastDetectTime2!).inMilliseconds;
 
       if (difference < stateHoldDuration) {
         print("第二個模型狀態維持中: ${lastSecondModelResult}");
@@ -717,7 +720,7 @@ class Detector_tongue_depresser {
         if (shouldResetCounter || stableDetectResult != TargetText) {
           // 重置計時器
           this.FaceTimeCounter = 0;
-          
+
           // 重置延遲標記
           if (shouldResetCounter) {
             shouldResetCounter = false;
@@ -732,11 +735,14 @@ class Detector_tongue_depresser {
         }
         if (stableSecondModelResult == SecondTargetExclusion) {
           if (firstNonDetectionTime != null && !shouldResetCounter) {
-            final elapsed = DateTime.now().difference(firstNonDetectionTime!).inMilliseconds;
+            final elapsed = DateTime.now()
+                .difference(firstNonDetectionTime!)
+                .inMilliseconds;
             final remaining = (nonDetectionDelay - elapsed) / 1000;
             print("檢測到 'non'，延遲重置中... 剩餘 ${remaining.toStringAsFixed(1)} 秒");
           } else {
-            print("不滿足條件: 第二個模型檢測到排除特徵 ${stableSecondModelResult} == ${SecondTargetExclusion}");
+            print(
+                "不滿足條件: 第二個模型檢測到排除特徵 ${stableSecondModelResult} == ${SecondTargetExclusion}");
           }
         }
       }
@@ -746,7 +752,7 @@ class Detector_tongue_depresser {
           stableSecondModelResult == SecondTargetExclusion) {
         //確認復歸
         this.StartedDetector = true;
-        
+
         // 重置延遲機制相關狀態
         firstNonDetectionTime = null;
         shouldResetCounter = false;

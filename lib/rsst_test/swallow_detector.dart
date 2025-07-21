@@ -5,17 +5,22 @@ import 'package:flutter/services.dart';
 import 'package:onnxruntime/onnxruntime.dart';
 import 'audio_processor.dart';
 
+// 核心 AI 推論引擎
 class SwallowDetector {
+  // 使用 ONNX Runtime 載入預訓練模型
+  // 實現候選確認機制，提高檢測準確性
+  // 包含冷卻期機制避免重複檢測
+
   late final OrtSession _session;
   bool _initialized = false;
 
-  final double _threshold      = 0.6;  // 吞嚥判定閾值
-  final double _minStartTime   = 2.5;  // 忽略前 2.5 秒
-  final double _cooldownPeriod = 1;  // 冷卻期長度
+  final double _threshold = 0.6; // 吞嚥判定閾值
+  final double _minStartTime = 2.5; // 忽略前 2.5 秒
+  final double _cooldownPeriod = 1; // 冷卻期長度
 
   // 新增確認相關參數
-  final int _maxConfirmationWindows = 4;  // 最大確認窗口數（包括候選窗口）
-  final int _requiredConfirmations = 1;   // 需要的最小確認次數（包括候選窗口）
+  final int _maxConfirmationWindows = 4; // 最大確認窗口數（包括候選窗口）
+  final int _requiredConfirmations = 1; // 需要的最小確認次數（包括候選窗口）
 
   /// 初始化 ONNX Runtime 環境並載入模型
   Future<void> init() async {
@@ -24,9 +29,8 @@ class SwallowDetector {
     OrtEnv.instance.init();
 
     // 讀取模型 bytes
-    final raw = await rootBundle.load(
-      'assets/model/rsst_integrated_2k2_cnn_att2_2_ir9.onnx'
-    );
+    final raw = await rootBundle
+        .load('assets/model/rsst_integrated_2k2_cnn_att2_2_ir9.onnx');
     final modelBytes = raw.buffer.asUint8List();
 
     // 建立 Session
@@ -39,8 +43,7 @@ class SwallowDetector {
 
   /// 針對一系列 AudioSegment 執行吞嚥偵測
   Future<Map<String, dynamic>> detectSwallows(
-      List<AudioSegment> segments
-      ) async {
+      List<AudioSegment> segments) async {
     await init();
 
     List<double> swallowTimes = [];
@@ -127,7 +130,8 @@ class SwallowDetector {
               confirmationCount++;
             }
           } catch (e) {
-            print('確認窗口推論出錯 (時間=${confirmSeg.startTime.toStringAsFixed(2)}秒): $e');
+            print(
+                '確認窗口推論出錯 (時間=${confirmSeg.startTime.toStringAsFixed(2)}秒): $e');
             continue;
           }
         }
@@ -141,9 +145,11 @@ class SwallowDetector {
           inCooldown = true;
           cooldownEnd = ts + _cooldownPeriod;
 
-          print('確認吞嚥: 時間=${ts.toStringAsFixed(2)}秒, 概率=${prob.toStringAsFixed(4)}, 確認次數=$confirmationCount');
+          print(
+              '確認吞嚥: 時間=${ts.toStringAsFixed(2)}秒, 概率=${prob.toStringAsFixed(4)}, 確認次數=$confirmationCount');
         } else {
-          print('候選吞嚥未確認: 時間=${ts.toStringAsFixed(2)}秒, 確認次數=$confirmationCount (需要$_requiredConfirmations次)');
+          print(
+              '候選吞嚥未確認: 時間=${ts.toStringAsFixed(2)}秒, 確認次數=$confirmationCount (需要$_requiredConfirmations次)');
         }
 
         // 跳過已經檢查過的窗口，避免重複處理

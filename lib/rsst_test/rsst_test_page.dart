@@ -8,6 +8,9 @@ import '/flutter_flow/flutter_flow_theme.dart';
 import 'audio_recorder.dart';
 import 'rsst_result_page.dart';
 
+// 實際測驗執行頁面
+// 5秒準備倒數 + 30秒錄音流程
+// 提前2秒開始錄音以確保完整性
 class RsstTestPage extends StatefulWidget {
   const RsstTestPage({Key? key}) : super(key: key);
 
@@ -18,7 +21,7 @@ class RsstTestPage extends StatefulWidget {
 class _RsstTestPageState extends State<RsstTestPage> {
   final scaffoldKey = GlobalKey<ScaffoldState>();
   final _unfocusNode = FocusNode();
-  final AudioPlayer _audioPlayer = AudioPlayer();//播放音檔
+  final AudioPlayer _audioPlayer = AudioPlayer(); //播放音檔
 
   bool _isPreparationPhase = true; // 準備階段
   bool _isRecording = false; // 正在錄音
@@ -235,7 +238,8 @@ class _RsstTestPageState extends State<RsstTestPage> {
       _preparationTimer!.cancel();
     }
     if ((_isRecording || _earlyRecordingStarted) &&
-        _recordingTimer != null && _recordingTimer!.isActive) {
+        _recordingTimer != null &&
+        _recordingTimer!.isActive) {
       _recordingTimer!.cancel();
       audioRecorder.stopRecording();
     }
@@ -256,10 +260,10 @@ class _RsstTestPageState extends State<RsstTestPage> {
           title: Text(
             'RSST 測驗進行中',
             style: FlutterFlowTheme.of(context).headlineMedium.override(
-              fontFamily: 'Poppins',
-              color: Colors.white,
-              fontSize: 22,
-            ),
+                  fontFamily: 'Poppins',
+                  color: Colors.white,
+                  fontSize: 22,
+                ),
           ),
           centerTitle: true,
           elevation: 2,
@@ -302,11 +306,11 @@ class _RsstTestPageState extends State<RsstTestPage> {
             child: Text(
               '$_preparationCounter',
               style: FlutterFlowTheme.of(context).displayLarge.override(
-                fontFamily: 'Poppins',
-                color: Color(0xFFC50D1C),
-                fontSize: 80,
-                fontWeight: FontWeight.bold,
-              ),
+                    fontFamily: 'Poppins',
+                    color: Color(0xFFC50D1C),
+                    fontSize: 80,
+                    fontWeight: FontWeight.bold,
+                  ),
             ),
           ),
         ).animate().scale(duration: 400.ms),
@@ -329,15 +333,15 @@ class _RsstTestPageState extends State<RsstTestPage> {
             mainAxisSize: MainAxisSize.min,
             children: [
               AutoSizeText(
-                _earlyRecordingStarted
-                    ? '錄音已開始！'
-                    : '準備開始測驗',
+                _earlyRecordingStarted ? '錄音已開始！' : '準備開始測驗',
                 style: FlutterFlowTheme.of(context).titleLarge.override(
-                  fontFamily: 'Poppins',
-                  color: _earlyRecordingStarted ? Colors.red : Color(0xFFC50D1C),
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                ),
+                      fontFamily: 'Poppins',
+                      color: _earlyRecordingStarted
+                          ? Colors.red
+                          : Color(0xFFC50D1C),
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                    ),
               ),
               SizedBox(height: 15),
               AutoSizeText(
@@ -346,9 +350,9 @@ class _RsstTestPageState extends State<RsstTestPage> {
                     : '請將手機放在頸部右側\n準備就緒後將在倒數結束時開始錄音',
                 textAlign: TextAlign.center,
                 style: FlutterFlowTheme.of(context).bodyMedium.override(
-                  fontFamily: 'Poppins',
-                  fontSize: 16,
-                ),
+                      fontFamily: 'Poppins',
+                      fontSize: 16,
+                    ),
               ),
             ],
           ),
@@ -384,7 +388,8 @@ class _RsstTestPageState extends State<RsstTestPage> {
                 ],
               ),
             ),
-          ).animate(onPlay: (controller) => controller.repeat())
+          )
+              .animate(onPlay: (controller) => controller.repeat())
               .fadeIn(duration: 500.ms)
               .fadeOut(duration: 500.ms)
               .then()
@@ -414,16 +419,17 @@ class _RsstTestPageState extends State<RsstTestPage> {
                 Text(
                   '$_recordingCounter',
                   style: FlutterFlowTheme.of(context).displayMedium.override(
-                    fontFamily: 'Poppins',
-                    color: Colors.white,
-                    fontSize: 60,
-                    fontWeight: FontWeight.bold,
-                  ),
+                        fontFamily: 'Poppins',
+                        color: Colors.white,
+                        fontSize: 60,
+                        fontWeight: FontWeight.bold,
+                      ),
                 ),
               ],
             ),
           ),
-        ).animate(onPlay: (controller) => controller.repeat())
+        )
+            .animate(onPlay: (controller) => controller.repeat())
             .scaleXY(begin: 1.0, end: 1.05, duration: 800.ms)
             .then(duration: 800.ms),
         SizedBox(height: 40),
@@ -447,20 +453,20 @@ class _RsstTestPageState extends State<RsstTestPage> {
               AutoSizeText(
                 '請開始吞嚥',
                 style: FlutterFlowTheme.of(context).titleLarge.override(
-                  fontFamily: 'Poppins',
-                  color: Colors.red,
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                ),
+                      fontFamily: 'Poppins',
+                      color: Colors.red,
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                    ),
               ),
               SizedBox(height: 15),
               AutoSizeText(
                 '請盡可能多次地吞嚥\n保持手機穩定並靠近頸部',
                 textAlign: TextAlign.center,
                 style: FlutterFlowTheme.of(context).bodyMedium.override(
-                  fontFamily: 'Poppins',
-                  fontSize: 16,
-                ),
+                      fontFamily: 'Poppins',
+                      fontSize: 16,
+                    ),
               ),
             ],
           ),
@@ -499,10 +505,10 @@ class _RsstTestPageState extends State<RsstTestPage> {
             '正在處理錄音...\n這可能需要一點時間',
             textAlign: TextAlign.center,
             style: FlutterFlowTheme.of(context).titleMedium.override(
-              fontFamily: 'Poppins',
-              color: Colors.white,
-              fontSize: 20,
-            ),
+                  fontFamily: 'Poppins',
+                  color: Colors.white,
+                  fontSize: 20,
+                ),
           ),
         ),
       ],
@@ -530,20 +536,20 @@ class _RsstTestPageState extends State<RsstTestPage> {
           AutoSizeText(
             '測驗完成！',
             style: FlutterFlowTheme.of(context).titleLarge.override(
-              fontFamily: 'Poppins',
-              color: Color(0xFFC50D1C),
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-            ),
+                  fontFamily: 'Poppins',
+                  color: Color(0xFFC50D1C),
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                ),
           ),
           SizedBox(height: 20),
           AutoSizeText(
             '正在前往結果頁面...',
             textAlign: TextAlign.center,
             style: FlutterFlowTheme.of(context).bodyMedium.override(
-              fontFamily: 'Poppins',
-              fontSize: 16,
-            ),
+                  fontFamily: 'Poppins',
+                  fontSize: 16,
+                ),
           ),
         ],
       ),

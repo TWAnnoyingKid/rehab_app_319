@@ -10,6 +10,7 @@ import '../../flutter_flow/flutter_flow_util.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:intl/intl.dart';
 import 'dart:io'; // 添加這個 import 來檢測平台
+import '../../utils/ios_audio_processor.dart'; // 重新啟用這個 import
 
 /// **第一個畫面：讓使用者選擇 PA、TA、KA**
 class speech extends StatefulWidget {
@@ -472,14 +473,20 @@ class SoundDetectionScreen extends StatefulWidget {
 class _SoundDetectionScreenState extends State<SoundDetectionScreen>
     with SingleTickerProviderStateMixin {
   NoiseMeter? _noiseMeter;
+  IOSAudioProcessor? _iosAudioProcessor; // 重新啟用 iOS 音訊處理器
   StreamSubscription<NoiseReading>? _noiseSubscription;
+  StreamSubscription<double>? _iosAudioSubscription; // iOS 音訊訂閱
   bool _isListening = false;
   double _soundLevel = 0.0;
   int _wordCount = 0;
   bool _hasAddedWord = false;
 
-  // 平台特定的音量閾值
-  double _dBThreshold = Platform.isIOS ? 75.0 : 80.0; // iOS 通常需要較低的閾值
+  // 平台特定的音量閾值和檢測參數
+  double _dBThreshold = Platform.isIOS ? 75.0 : 80.0;
+
+  // 新增：iOS 特定的音節檢測參數
+  DateTime? _lastDetectionTime;
+  bool _isCurrentlyLoud = false;
 
   // 動畫控制
   late AnimationController _animationController;
@@ -537,52 +544,96 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
     if (_isListening) return;
 
     _resetValues(); // 重置計數與變數
+
+    if (Platform.isIOS) {
+      _startIOSAudioProcessing();
+    } else {
+      _startAndroidAudioProcessing();
+    }
+
+    _startCountdown();
+    setState(() => _isListening = true);
+    print(
+        '開始音量偵測 - 平台: ${Platform.isIOS ? "iOS (原生)" : "Android"}, 閾值: $_dBThreshold dB');
+  }
+
+  // 新增：iOS 原生音訊處理
+  void _startIOSAudioProcessing() {
+    print('啟動 iOS 原生音訊處理...');
+    _iosAudioProcessor ??= IOSAudioProcessor();
+
+    try {
+      _iosAudioSubscription = _iosAudioProcessor!.volumeStream.listen(
+        (volume) {
+          _updateVolumeDetection(volume);
+        },
+        onError: (error) {
+          print('iOS 音訊流錯誤: $error');
+          _restartIOSAudioProcessing();
+        },
+        onDone: () {
+          print('iOS 音訊流結束');
+        },
+      );
+
+      _iosAudioProcessor!.startListening().then((_) {
+        print('iOS 音訊處理器啟動成功');
+      }).catchError((error) {
+        print('iOS 音訊處理器啟動失敗: $error');
+        _stopListening();
+      });
+    } catch (e) {
+      debugPrint('iOS 音訊處理啟動失敗: $e');
+      _stopListening();
+    }
+  }
+
+  // 新增：重新啟動 iOS 音訊處理
+  void _restartIOSAudioProcessing() {
+    print('嘗試重新啟動 iOS 音訊處理...');
+    if (_isListening && Platform.isIOS) {
+      _iosAudioProcessor?.stopListening().then((_) {
+        Future.delayed(const Duration(milliseconds: 500), () {
+          if (_isListening) {
+            _startIOSAudioProcessing();
+          }
+        });
+      });
+    }
+  }
+
+  // Android 音訊處理
+  void _startAndroidAudioProcessing() {
     _noiseMeter ??= NoiseMeter();
 
     try {
-      // 開始監聽音量
-      _noiseSubscription = _noiseMeter!.noiseStream.listen((noiseEvent) {
-        setState(() {
-          _soundLevel = noiseEvent.meanDecibel; //更新音量數據
-
-          if (_soundLevel > _dBThreshold) {
-            if (!_hasAddedWord) {
-              _wordCount++;
-              _hasAddedWord = true;
-              print(
-                  '${Platform.isIOS ? "iOS" : "Android"} 偵測到音節，當前音量: $_soundLevel dB');
-            }
-            _animationController.forward(); // 氣泡放大
-          } else {
-            _hasAddedWord = false;
-            _animationController.reverse(); // 氣泡縮小
-          }
-        });
+      _noiseSubscription = _noiseMeter!.noise.listen((noiseEvent) {
+        _updateVolumeDetection(noiseEvent.meanDecibel);
       }, onError: (e) {
-        debugPrint('噪音偵測錯誤 (${Platform.isIOS ? "iOS" : "Android"}): $e');
+        debugPrint('Android 噪音偵測錯誤: $e');
         _stopListening();
       });
-
-      // 開始倒數計時
-      _startCountdown();
     } catch (e) {
-      debugPrint('啟動偵測時發生錯誤 (${Platform.isIOS ? "iOS" : "Android"}): $e');
+      debugPrint('Android 音訊處理啟動失敗: $e');
       _stopListening();
     }
-
-    setState(() => _isListening = true);
-    print(
-        '開始音量偵測 - 平台: ${Platform.isIOS ? "iOS" : "Android"}, 閾值: $_dBThreshold dB');
   }
 
   void _stopListening() {
-    _noiseSubscription?.cancel();
-    _noiseSubscription = null;
-    _noiseMeter = null;
-    _countdownTimer?.cancel(); // 停止倒數
+    if (Platform.isIOS) {
+      _iosAudioSubscription?.cancel();
+      _iosAudioSubscription = null;
+      _iosAudioProcessor?.stopListening();
+    } else {
+      _noiseSubscription?.cancel();
+      _noiseSubscription = null;
+      _noiseMeter = null;
+    }
+
+    _countdownTimer?.cancel();
     setState(() {
       _isListening = false;
-      _animationController.reverse(); // 測試停止時，氣泡恢復原狀
+      _animationController.reverse();
     });
   }
 
@@ -592,7 +643,63 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
       _soundLevel = 0.0;
       _hasAddedWord = false;
       _remainingTime = 10; // 重置倒數
+
+      // 重置 iOS 特定變數
+      _lastDetectionTime = null;
+      _isCurrentlyLoud = false;
     });
+  }
+
+  // 新增：統一的音量檢測方法
+  void _updateVolumeDetection(double currentVolume) {
+    setState(() {
+      _soundLevel = currentVolume;
+
+      if (Platform.isIOS) {
+        _detectSyllableIOS(currentVolume);
+      } else {
+        _detectSyllableAndroid(currentVolume);
+      }
+    });
+  }
+
+  // Android 音節檢測邏輯（原邏輯）
+  void _detectSyllableAndroid(double currentVolume) {
+    if (currentVolume > _dBThreshold) {
+      if (!_hasAddedWord) {
+        _wordCount++;
+        _hasAddedWord = true;
+        print('Android 偵測到音節，當前音量: $currentVolume dB');
+      }
+      _animationController.forward();
+    } else {
+      _hasAddedWord = false;
+      _animationController.reverse();
+    }
+  }
+
+  // 簡化的 iOS 音節檢測邏輯 - 使用原始振幅
+  void _detectSyllableIOS(double currentVolume) {
+    DateTime now = DateTime.now();
+    bool isLoudNow = currentVolume > _dBThreshold;
+
+    // 極簡邊緣檢測：直接比較當前和前一個狀態
+    if (isLoudNow && !_isCurrentlyLoud) {
+      // 上升邊緣：新音節開始
+      if (_lastDetectionTime == null ||
+          now.difference(_lastDetectionTime!).inMilliseconds > 150) {
+        _wordCount++;
+        _lastDetectionTime = now;
+        _isCurrentlyLoud = true;
+        print(
+            'iOS 原始振幅音節檢測 (#$_wordCount): ${currentVolume.toStringAsFixed(1)} dB');
+        _animationController.forward();
+      }
+    } else if (!isLoudNow && _isCurrentlyLoud) {
+      // 下降邊緣：音節結束
+      _isCurrentlyLoud = false;
+      _animationController.reverse();
+    }
   }
 
   // **開始倒數計時**
@@ -950,8 +1057,8 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
 
   @override
   void dispose() {
-    //取消動作
-    _noiseSubscription?.cancel();
+    _stopListening();
+    _iosAudioProcessor?.dispose(); // 重新啟用這行
     _animationController.dispose();
     _countdownTimer?.cancel();
     super.dispose();
