@@ -60,18 +60,6 @@
 	    <string>AVAudioSessionCategoryOptionMeasurement</string>
 	</array>
 	
-	<!-- 照片庫權限 -->
-	<key>NSPhotoLibraryUsageDescription</key>
-	<string>此應用程式需要存取照片庫以儲存和選擇圖片</string>
-	
-	<!-- 照片庫新增權限 (iOS 11+) -->
-	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>此應用程式需要將復健記錄保存到照片庫</string>
-	
-	<!-- 語音識別權限 -->
-	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>此應用程式需要使用語音識別功能來協助復健訓練</string>
-	
 	<!-- 本地通知權限 (iOS 10+) -->
 	<key>UIBackgroundModes</key>
 	<array>
@@ -83,20 +71,9 @@
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>此應用程式需要位置資訊來提供個人化的復健服務</string>
 	
-	<!-- 健康資料權限 (如果需要) -->
-	<key>NSHealthShareUsageDescription</key>
-	<string>此應用程式需要讀取健康資料來追蹤復健進度</string>
-	
-	<key>NSHealthUpdateUsageDescription</key>
-	<string>此應用程式需要寫入健康資料來記錄復健活動</string>
-	
 	<!-- 文件存取權限 -->
 	<key>NSDocumentsFolderUsageDescription</key>
 	<string>此應用程式需要存取文件夾來保存復健記錄和音頻檔案</string>
-	
-	<!-- 媒體庫權限 -->
-	<key>NSAppleMusicUsageDescription</key>
-	<string>此應用程式需要存取媒體庫來播放復健訓練音頻</string>
 	
 </dict>
 </plist>

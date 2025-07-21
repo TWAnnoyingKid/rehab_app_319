@@ -2,7 +2,7 @@ name: rehab_app_319
 description: "復健訓練應用程式 - 協助用戶進行口腔和肢體復健訓練"
 publish_to: 'none'
 
-version: 1.0.0+1
+version: 1.0.0+2
 
 environment:
   sdk: '>=3.3.0 <4.0.0'
