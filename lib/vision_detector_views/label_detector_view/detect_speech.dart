@@ -482,7 +482,7 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
   bool _hasAddedWord = false;
 
   // 平台特定的音量閾值和檢測參數
-  double _dBThreshold = Platform.isIOS ? 75.0 : 80.0;
+  double _dBThreshold = Platform.isIOS ? 75.0 : 75.0; // 調整 Android 預設閾值為 75.0
 
   // 新增：iOS 特定的音節檢測參數
   DateTime? _lastDetectionTime;
@@ -523,14 +523,39 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
       print('iOS 平台：使用優化的音量閾值設定');
       // iOS 可能需要更精確的調整
     } else {
-      print('Android 平台：使用標準音量閾值設定');
+      print('Android 平台：使用 noise_meter 3.0.1 優化設定');
+      print('Android 預設閾值: $_dBThreshold dB');
+      // 針對 noise_meter 3.0.1 的特殊設定
     }
   }
 
   Future<void> _requestPermissions() async {
     var status = await Permission.microphone.status;
-    if (!status.isGranted) {
-      await Permission.microphone.request();
+
+    // Android 加強權限檢查
+    if (!Platform.isIOS) {
+      print('Android 權限檢查: 當前狀態 $status');
+
+      if (!status.isGranted) {
+        print('Android 請求麥克風權限...');
+        status = await Permission.microphone.request();
+        print('Android 權限請求結果: $status');
+      }
+
+      // 檢查權限是否真的被授予
+      if (!status.isGranted) {
+        print('Android 權限被拒絕，無法進行音訊檢測');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('需要麥克風權限才能進行音節檢測'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      } else {
+        print('Android 麥克風權限已授予');
+      }
     }
 
     // iOS 特殊處理：確保權限狀態穩定
@@ -602,20 +627,75 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
     }
   }
 
-  // Android 音訊處理
+  // Android 音訊處理 - 改善版本
   void _startAndroidAudioProcessing() {
-    _noiseMeter ??= NoiseMeter();
+    print('啟動 Android 音訊處理 (noise_meter 3.0.1)...');
 
     try {
-      _noiseSubscription = _noiseMeter!.noise.listen((noiseEvent) {
-        _updateVolumeDetection(noiseEvent.meanDecibel);
-      }, onError: (e) {
-        debugPrint('Android 噪音偵測錯誤: $e');
-        _stopListening();
+      // 檢查權限狀態
+      Permission.microphone.status.then((status) {
+        if (!status.isGranted) {
+          print('Android 音訊處理失敗：麥克風權限未授予');
+          _stopListening();
+          return;
+        }
+
+        // 權限正常，初始化 NoiseMeter
+        _initializeNoiseMeter();
       });
     } catch (e) {
-      debugPrint('Android 音訊處理啟動失敗: $e');
+      print('Android 音訊處理啟動失敗: $e');
+      _showAndroidError('音訊處理啟動失敗: $e');
       _stopListening();
+    }
+  }
+
+  // 新增：Android NoiseMeter 初始化方法
+  void _initializeNoiseMeter() {
+    try {
+      print('初始化 Android NoiseMeter...');
+      _noiseMeter ??= NoiseMeter();
+
+      _noiseSubscription = _noiseMeter!.noise.listen(
+        (NoiseReading noiseEvent) {
+          // 檢查數據有效性
+          if (noiseEvent.meanDecibel.isNaN ||
+              noiseEvent.meanDecibel.isInfinite) {
+            print('Android 接收到無效音量數據: ${noiseEvent.meanDecibel}');
+            return;
+          }
+
+          // 更新音量檢測
+          _updateVolumeDetection(noiseEvent.meanDecibel);
+        },
+        onError: (error) {
+          print('Android 噪音偵測錯誤: $error');
+          _showAndroidError('音訊檢測錯誤: $error');
+          _stopListening();
+        },
+        onDone: () {
+          print('Android 音訊流結束');
+        },
+      );
+
+      print('Android NoiseMeter 初始化成功');
+    } catch (e) {
+      print('Android NoiseMeter 初始化失敗: $e');
+      _showAndroidError('音訊初始化失敗: $e');
+      _stopListening();
+    }
+  }
+
+  // 新增：Android 錯誤顯示方法
+  void _showAndroidError(String message) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Android 音訊錯誤: $message'),
+          backgroundColor: Colors.orange,
+          duration: const Duration(seconds: 3),
+        ),
+      );
     }
   }
 
@@ -625,9 +705,16 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
       _iosAudioSubscription = null;
       _iosAudioProcessor?.stopListening();
     } else {
-      _noiseSubscription?.cancel();
-      _noiseSubscription = null;
-      _noiseMeter = null;
+      // Android 清理 - 加強版本
+      print('停止 Android 音訊處理...');
+      try {
+        _noiseSubscription?.cancel();
+        _noiseSubscription = null;
+        _noiseMeter = null;
+        print('Android 音訊處理已清理');
+      } catch (e) {
+        print('Android 音訊清理錯誤: $e');
+      }
     }
 
     _countdownTimer?.cancel();
@@ -663,13 +750,32 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
     });
   }
 
-  // Android 音節檢測邏輯（原邏輯）
+  // Android 音節檢測邏輯 - 改善版本
   void _detectSyllableAndroid(double currentVolume) {
+    // 數據有效性檢查
+    if (currentVolume.isNaN || currentVolume.isInfinite) {
+      print('Android 接收到無效音量: $currentVolume');
+      return;
+    }
+
+    // 音量範圍檢查 (noise_meter 3.0.1 通常輸出 0-120 dB)
+    if (currentVolume < 0 || currentVolume > 150) {
+      print('Android 音量超出正常範圍: $currentVolume dB (noise_meter 3.0.1)');
+      return;
+    }
+
+    // noise_meter 3.0.1 特殊處理：過濾異常低值
+    if (currentVolume < 30.0) {
+      // 可能是背景噪音或靜音，不進行檢測
+      return;
+    }
+
     if (currentVolume > _dBThreshold) {
       if (!_hasAddedWord) {
         _wordCount++;
         _hasAddedWord = true;
-        print('Android 偵測到音節，當前音量: $currentVolume dB');
+        print(
+            'Android (noise_meter 3.0.1) 偵測到音節 #$_wordCount，當前音量: ${currentVolume.toStringAsFixed(1)} dB，閾值: ${_dBThreshold.toStringAsFixed(1)} dB');
       }
       _animationController.forward();
     } else {
@@ -1014,7 +1120,7 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
                 ),
               ),
               Text(
-                '平台建議範圍: ${Platform.isIOS ? "50-90" : "60-100"} dB',
+                '平台建議範圍: ${Platform.isIOS ? "50-90" : "55-95"} dB', // 調整 Android 建議範圍
                 style: TextStyle(fontSize: 12, color: Colors.grey[500]),
               ),
             ],
@@ -1032,10 +1138,10 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
               overlayShape: const RoundSliderOverlayShape(overlayRadius: 28.0),
             ),
             child: Slider(
-              value: _dBThreshold.clamp(
-                  Platform.isIOS ? 50.0 : 60.0, Platform.isIOS ? 90.0 : 100.0),
-              min: Platform.isIOS ? 50.0 : 60.0,
-              max: Platform.isIOS ? 90.0 : 100.0,
+              value: _dBThreshold.clamp(Platform.isIOS ? 50.0 : 55.0,
+                  Platform.isIOS ? 90.0 : 95.0), // 調整 Android 範圍
+              min: Platform.isIOS ? 50.0 : 55.0, // 調整 Android 最小值
+              max: Platform.isIOS ? 90.0 : 95.0, // 調整 Android 最大值
               divisions: Platform.isIOS ? 20 : 20, // 每2dB一個刻度
               label: _dBThreshold.toStringAsFixed(0),
               onChanged: _isListening
@@ -1045,7 +1151,7 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
                         ///更新 _dBThreshold 的數值
                         _dBThreshold = value;
                         print(
-                            '調整音量閾值: $_dBThreshold dB (${Platform.isIOS ? "iOS" : "Android"})');
+                            '調整音量閾值: $_dBThreshold dB (${Platform.isIOS ? "iOS" : "Android noise_meter 3.0.1"})'); // 加入版本資訊
                       });
                     },
             ),
@@ -1057,10 +1163,39 @@ class _SoundDetectionScreenState extends State<SoundDetectionScreen>
 
   @override
   void dispose() {
+    print('正在清理音訊資源...');
+
+    // 先停止監聽，確保所有訂閱都被取消
     _stopListening();
-    _iosAudioProcessor?.dispose(); // 重新啟用這行
-    _animationController.dispose();
+
+    // 平台特定清理
+    if (Platform.isIOS) {
+      _iosAudioProcessor?.dispose(); // 保持 iOS 清理不變
+    } else {
+      // Android 特定清理
+      print('清理 Android 音訊資源...');
+      try {
+        _noiseSubscription?.cancel();
+        _noiseSubscription = null;
+        _noiseMeter = null;
+        print('Android 音訊資源清理完成');
+      } catch (e) {
+        print('Android 資源清理錯誤: $e');
+      }
+    }
+
+    // 清理動畫控制器
+    try {
+      _animationController.dispose();
+    } catch (e) {
+      print('動畫控制器清理錯誤: $e');
+    }
+
+    // 清理計時器
     _countdownTimer?.cancel();
+    _countdownTimer = null;
+
+    print('音訊資源清理完成');
     super.dispose();
   }
 }

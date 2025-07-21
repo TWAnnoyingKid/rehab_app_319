@@ -15,10 +15,6 @@ import '../../main.dart';
 import '../../flutter_flow/flutter_flow_util.dart';
 import '../../trainmouth/trainmouth_widget.dart';
 
-// 結果展示頁面
-// 自動進行音頻處理和 AI 推論
-// 展示波形圖和吞嚥時間點
-
 class RsstResultPage extends StatefulWidget {
   final int swallowCount;
   final String? recordingPath;

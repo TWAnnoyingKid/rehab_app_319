@@ -8,9 +8,6 @@ import '/flutter_flow/flutter_flow_theme.dart';
 import 'rsst_test_page.dart';
 import 'rsst_result_page.dart';
 
-// 測驗介紹和準備頁面
-// 處理權限請求和測驗說明
-// 提供音檔上傳功能（測試用）
 class RsstIntroPage extends StatefulWidget {
   const RsstIntroPage({Key? key}) : super(key: key);
 
@@ -458,8 +455,7 @@ class _RsstIntroPageState extends State<RsstIntroPage> {
                     ),
                   ).animate().fade(duration: 500.ms).scale(duration: 500.ms),
 
-                  /*
-                  //上傳音檔按鈕 測試模型用 部屬時刪除
+                  /* 上傳音檔按鈕 測試模型用 部屬時刪除
                   Padding(
                     padding: EdgeInsetsDirectional.fromSTEB(0, 0, 0, 30),
                     child: ElevatedButton.icon(
@@ -480,7 +476,6 @@ class _RsstIntroPageState extends State<RsstIntroPage> {
                     ),
                   ).animate().fade(duration: 500.ms, delay: 200.ms),
 
-
                   // 上傳進度指示器
                   if (_isUploading)
                     Padding(
@@ -499,8 +494,7 @@ class _RsstIntroPageState extends State<RsstIntroPage> {
                         ],
                       ),
                     ),
-
-                    */
+                  */
                 ],
               ),
             ),

@@ -10,7 +10,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  noise_meter: ^5.0.1
+  noise_meter: 5.0.2
   permission_handler: ^11.0.1  # 保持最新版本
   speech_to_text: ^6.1.1
   fftea: ^1.5.0+1
