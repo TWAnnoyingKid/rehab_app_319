@@ -28,24 +28,43 @@ class _HomeWidgetState extends State<HomeWidget> {
   var money1;
 
   Future money() async {
-    var url = Uri.parse(ip + "money.php");
-    final responce = await http.post(url, body: {
-      "account": FFAppState().accountnumber,
-    });
-    if (responce.statusCode == 200) {
-      var data = json.decode(responce.body);
-      setState(() {
-        money1 = data['coin']['coin'];
-      });
-      //print(data['coin']['coin']);
+    try {
+      var url = Uri.parse(ip + "money.php");
+      final responce = await http.post(url, body: {
+        "account": FFAppState().accountnumber,
+      }).timeout(Duration(seconds: 10));
+      
+      if (responce.statusCode == 200) {
+        var data = json.decode(responce.body);
+        if (mounted) {
+          setState(() {
+            money1 = data['coin']['coin'];
+          });
+        }
+        //print(data['coin']['coin']);
+      } else {
+        print('Money API 錯誤: HTTP ${responce.statusCode}');
+      }
+    } catch (e) {
+      print('Money API 請求失敗: $e');
+      // 設置默認值或保持當前值
+      if (mounted && money1 == null) {
+        setState(() {
+          money1 = 0; // 設置默認值
+        });
+      }
     }
   }
 
-  void cycle() {
-    var url = Uri.parse(ip + "delete.php");
-    http.post(url, body: {
-      "account": FFAppState().accountnumber,
-    });
+  void cycle() async {
+    try {
+      var url = Uri.parse(ip + "delete.php");
+      await http.post(url, body: {
+        "account": FFAppState().accountnumber,
+      }).timeout(Duration(seconds: 10));
+    } catch (e) {
+      print('Cycle API 錯誤: $e');
+    }
   }
 
   // 顯示退出確認對話框

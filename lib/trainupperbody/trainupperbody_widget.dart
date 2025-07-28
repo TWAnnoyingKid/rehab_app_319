@@ -26,35 +26,63 @@ class _TrainupperbodyWidgetState extends State<TrainupperbodyWidget> {
   final _unfocusNode = FocusNode();
 
   lock1() async {
-    var url = Uri.parse(ip + "lock.php");
-    final responce = await http.post(url, body: {
-      "pid": FFAppState().accountnumber,
-      "parts": "上肢",
-      //"pid" : "airehab_01",
-    });
-    if (responce.statusCode == 200) {
-      var data = json.decode(responce.body); //將json解碼為陣列形式
-      if (data["lock"]["state"] == "unlock") {
-        context.pushNamed('trainupperbody1'); //!!!!!!!!!這段是無動作，測試完 請刪掉
-      } else {
-        context.pushNamed('trainupperbody1');
+    try {
+      if (!mounted) return;
+      
+      var url = Uri.parse(ip + "lock.php");
+      final responce = await http.post(url, body: {
+        "pid": FFAppState().accountnumber,
+        "parts": "上肢",
+        //"pid" : "airehab_01",
+      }).timeout(Duration(seconds: 10));
+      
+      if (responce.statusCode == 200) {
+        var data = json.decode(responce.body); //將json解碼為陣列形式
+        if (!mounted) return;
+        
+        if (data["lock"]["state"] == "unlock") {
+          context.pushNamed('trainupperbody1'); //!!!!!!!!!這段是無動作，測試完 請刪掉
+        } else {
+          context.pushNamed('trainupperbody1');
+        }
+      }
+    } catch (e) {
+      print('Lock1 錯誤: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('無法連接伺服器，請稍後重試')),
+        );
       }
     }
   }
 
   lock2() async {
-    var url = Uri.parse(ip + "lock.php");
-    final responce = await http.post(url, body: {
-      "pid": FFAppState().accountnumber,
-      "parts": "上肢",
-      //"pid" : "airehab_01",
-    });
-    if (responce.statusCode == 200) {
-      var data = json.decode(responce.body); //將json解碼為陣列形式
-      if (data["lock"]["state"] == "lock") {
-        context.pushNamed('trainupperbody2'); //!!!!!!!!!這段是無動作，測試完 請刪掉
-      } else {
-        context.pushNamed('trainupperbody2');
+    try {
+      if (!mounted) return;
+      
+      var url = Uri.parse(ip + "lock.php");
+      final responce = await http.post(url, body: {
+        "pid": FFAppState().accountnumber,
+        "parts": "上肢",
+        //"pid" : "airehab_01",
+      }).timeout(Duration(seconds: 10));
+      
+      if (responce.statusCode == 200) {
+        var data = json.decode(responce.body); //將json解碼為陣列形式
+        if (!mounted) return;
+        
+        if (data["lock"]["state"] == "lock") {
+          context.pushNamed('trainupperbody2'); //!!!!!!!!!這段是無動作，測試完 請刪掉
+        } else {
+          context.pushNamed('trainupperbody2');
+        }
+      }
+    } catch (e) {
+      print('Lock2 錯誤: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('無法連接伺服器，請稍後重試')),
+        );
       }
     }
   }

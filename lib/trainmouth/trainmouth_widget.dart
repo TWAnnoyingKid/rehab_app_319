@@ -32,8 +32,18 @@ class _TrainmouthWidgetState extends State<TrainmouthWidget> {
 
   inputtime() async {
     //測試動作有無反應
-    Navigator.push(
-        context, MaterialPageRoute(builder: (context) => FaceVideoApp()));
+    try {
+      if (!mounted) return;
+      await Navigator.push(
+          context, MaterialPageRoute(builder: (context) => FaceVideoApp()));
+    } catch (e) {
+      print('導航錯誤: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('無法打開訓練界面，請稍後重試')),
+        );
+      }
+    }
   }
 
   @override

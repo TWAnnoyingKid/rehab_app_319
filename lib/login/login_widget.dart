@@ -13,10 +13,11 @@ import 'package:provider/provider.dart';
 import 'login_model.dart';
 export 'login_model.dart';
 import 'package:http/http.dart' as http;
-import '/main.dart';
-import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '/ios_permission_debug_widget.dart';
+
+// 定義 API 基礎地址
+const String ip = 'https://hpds.klooom.com:10073/flutterphp/';
 
 class LoginWidget extends StatefulWidget {
   const LoginWidget({Key? key}) : super(key: key);
@@ -93,12 +94,15 @@ class _LoginWidgetState extends State<LoginWidget> {
       }
 
       // 只有當有缺少的權限時才顯示權限說明對話框
-      await _showPermissionDialog();
+      if (mounted) {
+        await _showPermissionDialog();
+      }
 
       // 請求缺少的權限
       await _requestMissingPermissions(missingPermissions);
     } catch (e) {
       print('權限檢查錯誤: $e');
+      // 權限錯誤不應該阻止用戶進入應用程式
     }
   }
 
@@ -167,6 +171,8 @@ class _LoginWidgetState extends State<LoginWidget> {
 
   // 顯示權限說明對話框
   Future<void> _showPermissionDialog() async {
+    if (!mounted) return; // 檢查 widget 是否仍然掛載
+    
     return showDialog<void>(
       context: context,
       barrierDismissible: false,
@@ -353,53 +359,38 @@ class _LoginWidgetState extends State<LoginWidget> {
   }
 
   getData() async {
-    var url = Uri.parse(ip + "search1.php");
-    final responce = await http.post(url, body: {
-      "account": _model.textController1.text,
-      "password": _model.textController2.text
-    });
+    try {
+      var url = Uri.parse(ip + "search1.php");
+      final responce = await http.post(url, body: {
+        "account": _model.textController1.text,
+        "password": _model.textController2.text
+      }).timeout(Duration(seconds: 10)); // 添加超時設置
 
-    if (responce.statusCode == 200) {
-      var data = json.decode(responce.body); //將json解碼為陣列形式
-      //print(data["test"]['name']); //回傳值 name的回傳值
-      print(data["error"]);
-      if (_model.textController1.text.isNotEmpty == false) {
-        await showDialog(
-          context: context,
-          builder: (alertDialogContext) {
-            return AlertDialog(
-              title: Text('帳號不能為空'),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(alertDialogContext),
-                  child: Text('Ok'),
-                ),
-              ],
-            );
-          },
-        );
-      } else if (_model.textController2.text.isNotEmpty == false) {
-        await showDialog(
-          context: context,
-          builder: (alertDialogContext) {
-            return AlertDialog(
-              title: Text('密碼不能為空'),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(alertDialogContext),
-                  child: Text('Ok'),
-                ),
-              ],
-            );
-          },
-        );
-      } else {
-        if (data["error"] == '登入失敗') {
+      if (responce.statusCode == 200) {
+        var data = json.decode(responce.body); //將json解碼為陣列形式
+        //print(data["test"]['name']); //回傳值 name的回傳值
+        print(data["error"]);
+        if (_model.textController1.text.isNotEmpty == false) {
           await showDialog(
             context: context,
             builder: (alertDialogContext) {
               return AlertDialog(
-                title: Text('登入失敗'),
+                title: Text('帳號不能為空'),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(alertDialogContext),
+                    child: Text('Ok'),
+                  ),
+                ],
+              );
+            },
+          );
+        } else if (_model.textController2.text.isNotEmpty == false) {
+          await showDialog(
+            context: context,
+            builder: (alertDialogContext) {
+              return AlertDialog(
+                title: Text('密碼不能為空'),
                 actions: [
                   TextButton(
                     onPressed: () => Navigator.pop(alertDialogContext),
@@ -410,19 +401,85 @@ class _LoginWidgetState extends State<LoginWidget> {
             },
           );
         } else {
-          // 登入成功，保存帳號密碼並檢查未讀訊息
-          FFAppState().accountnumber = _model.textController1.text;
-          FFAppState().password = _model.textController2.text;
+          if (data["error"] == '登入失敗') {
+            await showDialog(
+              context: context,
+              builder: (alertDialogContext) {
+                return AlertDialog(
+                  title: Text('登入失敗'),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(alertDialogContext),
+                      child: Text('Ok'),
+                    ),
+                  ],
+                );
+              },
+            );
+          } else {
+            // 登入成功，保存帳號密碼並檢查未讀訊息
+            FFAppState().accountnumber = _model.textController1.text;
+            FFAppState().password = _model.textController2.text;
 
-          // 檢查未讀訊息
-          await FFAppState().checkUnreadNotifications();
+            try {
+              // 檢查未讀訊息
+              await FFAppState().checkUnreadNotifications();
+            } catch (e) {
+              print('檢查未讀訊息失敗: $e');
+              // 不阻止登入流程繼續
+            }
 
-          // 檢查並請求必要權限
-          await _checkAndRequestPermissions();
+            try {
+              // 檢查並請求必要權限
+              await _checkAndRequestPermissions();
+            } catch (e) {
+              print('權限檢查失敗: $e');
+              // 不阻止登入流程繼續
+            }
 
-          // 導航到主頁面
-          context.pushNamed('home');
+            // 導航到主頁面
+            if (mounted) {
+              context.pushNamed('home');
+            }
+          }
         }
+      } else {
+        // HTTP 狀態碼不是 200
+        await showDialog(
+          context: context,
+          builder: (alertDialogContext) {
+            return AlertDialog(
+              title: Text('連線錯誤'),
+              content: Text('服務器連接失敗，請檢查網路連線後重試。'),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(alertDialogContext),
+                  child: Text('確定'),
+                ),
+              ],
+            );
+          },
+        );
+      }
+    } catch (e) {
+      print('登入請求錯誤: $e');
+      // 顯示錯誤對話框
+      if (mounted) {
+        await showDialog(
+          context: context,
+          builder: (alertDialogContext) {
+            return AlertDialog(
+              title: Text('登入錯誤'),
+              content: Text('登入過程中發生錯誤，請檢查網路連線後重試。'),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(alertDialogContext),
+                  child: Text('確定'),
+                ),
+              ],
+            );
+          },
+        );
       }
     }
   }

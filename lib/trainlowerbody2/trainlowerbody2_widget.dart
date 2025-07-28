@@ -66,10 +66,20 @@ class _Trainlowerbody2WidgetState extends State<Trainlowerbody2Widget> {
 
   inputtime() async {
     //此函式為代替方案，不限制一天動作，可以一職測試 測試完請刪掉
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (context) => VideoApp()),
-    );
+    try {
+      if (!mounted) return;
+      await Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => VideoApp()),
+      );
+    } catch (e) {
+      print('導航錯誤: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('無法打開訓練界面，請稍後重試')),
+        );
+      }
+    }
   }
 
   @override
