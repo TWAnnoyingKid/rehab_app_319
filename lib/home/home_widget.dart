@@ -3,10 +3,8 @@ import '../main.dart';
 import '/flutter_flow/flutter_flow_theme.dart';
 import '/flutter_flow/flutter_flow_util.dart';
 import '/flutter_flow/bottom_navigation.dart';
-import 'package:auto_size_text/auto_size_text.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:http/http.dart' as http;
 import 'home_model.dart';
@@ -19,7 +17,7 @@ class HomeWidget extends StatefulWidget {
   _HomeWidgetState createState() => _HomeWidgetState();
 }
 
-class _HomeWidgetState extends State<HomeWidget> {
+class _HomeWidgetState extends State<HomeWidget> with WidgetsBindingObserver {
   late HomeModel _model;
 
   final scaffoldKey = GlobalKey<ScaffoldState>();
@@ -164,6 +162,9 @@ class _HomeWidgetState extends State<HomeWidget> {
     super.initState();
     _model = createModel(context, () => HomeModel());
 
+    // 添加生命週期觀察者
+    WidgetsBinding.instance.addObserver(this);
+
     // 初始化時檢查金幣和未讀訊息
     money();
 
@@ -177,9 +178,48 @@ class _HomeWidgetState extends State<HomeWidget> {
 
   @override
   void dispose() {
+    // 移除生命週期觀察者
+    WidgetsBinding.instance.removeObserver(this);
+    
     _model.dispose();
     _unfocusNode.dispose();
     super.dispose();
+  }
+
+  // 應用程式生命週期狀態改變時調用
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    
+    // 當應用程式從後台回到前台，或頁面重新獲得焦點時更新金幣
+    if (state == AppLifecycleState.resumed && mounted) {
+      money();
+      
+      // 同時檢查未讀訊息
+      if (FFAppState().accountnumber.isNotEmpty) {
+        FFAppState().checkUnreadNotifications();
+      }
+    }
+  }
+
+  // 當頁面重新可見時更新金幣（例如從其他頁面返回）
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    
+    // 確保頁面已經完全初始化後才更新
+    if (mounted) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          money();
+          
+          // 同時檢查未讀訊息
+          if (FFAppState().accountnumber.isNotEmpty) {
+            FFAppState().checkUnreadNotifications();
+          }
+        }
+      });
+    }
   }
 
   @override
