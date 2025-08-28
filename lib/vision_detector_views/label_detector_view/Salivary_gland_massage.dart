@@ -498,7 +498,7 @@ class salivary_gland_massage {
         // 在指定區域內移動
         if (DetectorED) {
           // 檢測是否有足夠的移動
-          if ((currentY - this.initialY!).abs() >= 10) {
+          if ((currentY - this.initialY!).abs() >= 5) {
             // 記錄當前完成一次移動
             this.posecounter++;
             this.orderText = "做得好!";

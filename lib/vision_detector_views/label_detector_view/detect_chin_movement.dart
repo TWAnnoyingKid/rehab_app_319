@@ -386,7 +386,7 @@ class Detector_chin_movement{
         this.orderText = "達標!";
         this.sounder(this.posecounter);
       }
-      if ( distance(posedata[1]!, posedata[1]!, posedata[23]!, posedata[23]!)<200
+      if ( distance(posedata[1]!, posedata[1]!, posedata[23]!, posedata[23]!)<300
           &&this.startdDetector) {
         //每秒目標
         this.posetimecounter++;
@@ -398,7 +398,7 @@ class Detector_chin_movement{
       }
     } else if (DetectorED) {
       //預防空值被訪問
-      if (distance(posedata[1]!, posedata[1]!, posedata[23]!, posedata[23]!)>200) {
+      if (distance(posedata[1]!, posedata[1]!, posedata[23]!, posedata[23]!)>300) {
         //確認復歸
         this.startdDetector = true;
       } else {

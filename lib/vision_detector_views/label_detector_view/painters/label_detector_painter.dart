@@ -9,6 +9,7 @@ import 'coordinates_translator.dart';
 import 'package:google_mlkit_image_labeling/google_mlkit_image_labeling.dart';
 
 String DetectResult = '';
+DateTime? _lastPositiveDetectTime;
 class LabelDetectorPainter extends CustomPainter {
   LabelDetectorPainter(
       this.labels,
@@ -16,6 +17,7 @@ class LabelDetectorPainter extends CustomPainter {
       this.rotation,
       this.imageSize,
       this.cameraLensDirection,
+      {this.isPuff = false}
       );
 
   final List<ImageLabel> labels;
@@ -23,6 +25,7 @@ class LabelDetectorPainter extends CustomPainter {
   final Size imageSize;
   final InputImageRotation rotation;
   final CameraLensDirection cameraLensDirection;
+  final bool isPuff;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -33,10 +36,38 @@ class LabelDetectorPainter extends CustomPainter {
           textDirection: TextDirection.ltr),
     );
     builder.pushStyle(ui.TextStyle(color: Colors.lightBlue[900]));
-    for (final ImageLabel label in labels) {
-      label.label == "normal"? builder.addText('nonface'):
-      builder.addText('${label.label}');
-      DetectResult = label.label;
+
+    DetectResult = ''; 
+    String finalDisplayText = ''; 
+
+    if (labels.isNotEmpty) {
+      final topLabel = labels.first; 
+      final confidenceString = '${(topLabel.confidence * 100).toStringAsFixed(1)}%';
+
+      if (this.isPuff) {
+        if (topLabel.label == 'normal' || topLabel.label == 'nonface') {
+          if(topLabel.confidence < 0.9){
+            DetectResult = 'puff';
+            finalDisplayText = 'puff: $confidenceString'; 
+          }else{
+            DetectResult = topLabel.label;
+            finalDisplayText = 'nonface: $confidenceString'; 
+          }
+        } 
+        else { 
+          DetectResult = topLabel.label;
+          finalDisplayText = 'puff: $confidenceString'; 
+        }
+      } 
+      else {
+        DetectResult = topLabel.label;
+        if (topLabel.label == "normal") {
+          finalDisplayText = 'nonface: $confidenceString';
+        } else {
+          finalDisplayText = '${topLabel.label}: $confidenceString';
+        }
+      }
+      builder.addText(finalDisplayText);
     }
     builder.pop();
 

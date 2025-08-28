@@ -383,6 +383,7 @@ class _ImageLabelViewState extends State<puff> {
         inputImage.metadata!.rotation,
         inputImage.metadata!.size,
         _cameraLensDirection,
+        isPuff: true,
       );
       _customPaint = CustomPaint(painter: painter);
     } else {

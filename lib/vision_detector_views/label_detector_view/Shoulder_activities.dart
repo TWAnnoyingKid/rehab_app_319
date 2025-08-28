@@ -23,7 +23,7 @@ class ShoulderActivitiesConstants {
   static const int DEFAULT_POSE_TARGET = 15; // 改成15次
   static const int DEFAULT_TIME_TARGET = 3; // 改成3秒
   static const double SHOULDER_OFFSET_X = 10.0;
-  static const double SHOULDER_OFFSET_Y = 40.0;
+  static const double SHOULDER_OFFSET_Y = 30.0;
   static const int COUNTDOWN_SECONDS = 5;
   static const int REMINDER_INTERVAL_SECONDS = 5;
   static const int KEEP_REMINDER_INTERVAL_SECONDS = 2;
