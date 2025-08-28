@@ -2,7 +2,7 @@ name: rehab_app_319
 description: "復健訓練應用程式 - 協助用戶進行口腔和肢體復健訓練"
 publish_to: 'none'
 
-version: 1.0.0+18340
+version: 2.0.0+18344
 
 environment:
   sdk: '>=3.3.0 <4.0.0'
@@ -62,7 +62,8 @@ dependencies:
   record: ^4.4.4
   cupertino_icons: ^1.0.6
   firebase_core: ^2.12.0
-  firebase_messaging: ^14.6.0
+  # 暫時註解掉 Firebase Messaging 以解決 Xcode 16 兼容性問題
+  # firebase_messaging: ^14.6.0
   flutter_launcher_icons: 0.13.1
   complex: ^0.8.0
 

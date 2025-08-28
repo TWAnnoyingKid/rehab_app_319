@@ -53,6 +53,14 @@
 	<!-- 麥克風權限 -->
 	<key>NSMicrophoneUsageDescription</key>
 	<string>此應用需要使用麥克風進行語音測試</string>
+	
+	<!-- 相簿權限 -->
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>此應用需要存取相簿來選擇復健訓練的參考圖片</string>
+	
+	<!-- 語音識別權限 -->
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>此應用需要語音識別功能來進行口腔復健訓練評估</string>
 	<!-- 添加以下配置來禁用音訊增益控制 -->
 	<key>AVAudioSessionCategoryOptions</key>
 	<array>
@@ -60,12 +68,7 @@
 	    <string>AVAudioSessionCategoryOptionMeasurement</string>
 	</array>
 	
-	<!-- 本地通知權限 (iOS 10+) -->
-	<key>UIBackgroundModes</key>
-	<array>
-		<string>background-processing</string>
-		<string>background-fetch</string>
-	</array>
+	<!-- 移除 UIBackgroundModes 以避免 App Store 驗證問題 -->
 	
 	<!-- 增加用於權限控制的額外配置 -->
 	<key>NSLocationWhenInUseUsageDescription</key>
