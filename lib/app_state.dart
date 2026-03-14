@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'dart:async';
 import 'dart:io';
+import 'utils/ip_manager.dart';
 
 class FFAppState extends ChangeNotifier {
   static final FFAppState _instance = FFAppState._internal();
@@ -248,7 +249,7 @@ class FFAppState extends ChangeNotifier {
     }
 
     try {
-      const String ip = 'https://hpds.klooom.com:10073/flutterphp/';
+      final String ip = IpManager().currentIp;
       var url = Uri.parse(ip + "getdata2.php");
 
       // 設定較短的超時時間，避免長時間等待

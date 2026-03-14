@@ -141,6 +141,11 @@ GoRouter createRouter(AppStateNotifier appStateNotifier) => GoRouter(
               name: 'questions_page',
               path: 'questions_page',
               builder: (context, params) => QuestionsPageWidget(),
+            ),
+            FFRoute(
+              name: 'ip_config',
+              path: 'ip_config',
+              builder: (context, params) => IpConfigWidget(),
             )
           ].map((r) => r.toRoute(appStateNotifier)).toList(),
         ),

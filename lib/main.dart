@@ -15,6 +15,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:workmanager/workmanager.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'utils/ip_manager.dart';
 
 List<CameraDescription> cameras = [];
 // 暫時註解掉 Firebase Messaging 背景處理器
@@ -40,6 +41,8 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   await FlutterFlowTheme.initialize();
+
+  await IpManager().initialize();
 
   final appState = FFAppState(); // Initialize FFAppState
   cameras = await availableCameras();
@@ -124,7 +127,7 @@ Future _showNotificationWithDefaultSound(flip) async {
 }
 
 //var ip =('http://140.127.114.38:10073/flutterphp/');//原本IP
-var ip = ('https://hpds.klooom.com:10073/flutterphp/'); //新網域
+var ip = (IpManager().currentIp);
 //https://hpds.klooom.com:10073/site/notice.php
 
 class MyApp extends StatefulWidget {

@@ -15,9 +15,10 @@ export 'login_model.dart';
 import 'package:http/http.dart' as http;
 import 'package:permission_handler/permission_handler.dart';
 import '/ios_permission_debug_widget.dart';
+import '../utils/ip_manager.dart';
+import '../ip_config/ip_config_widget.dart';
 
-// 定義 API 基礎地址
-const String ip = 'https://hpds.klooom.com:10073/flutterphp/';
+String get ip => IpManager().currentIp;
 
 class LoginWidget extends StatefulWidget {
   const LoginWidget({Key? key}) : super(key: key);
@@ -359,6 +360,30 @@ class _LoginWidgetState extends State<LoginWidget> {
   }
 
   getData() async {
+    final account = _model.textController1.text.trim().toLowerCase();
+    final password = _model.textController2.text.trim();
+
+    // 後門管理入口：帳號 ip config、密碼 98765 直接進入 IP 設定頁
+    if (account == 'ip config' && password == '98765') {
+      if (mounted) {
+        await Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => const IpConfigWidget()),
+        );
+        if (!mounted) {
+          return;
+        }
+
+        setState(() {
+          _model.textController1?.clear();
+          _model.textController2?.clear();
+        });
+
+        FFAppState().accountnumber = '';
+        FFAppState().password = '';
+      }
+      return;
+    }
+
     try {
       var url = Uri.parse(ip + "search1.php");
       final responce = await http.post(url, body: {

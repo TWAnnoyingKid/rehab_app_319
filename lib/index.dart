@@ -27,3 +27,4 @@ export '/knowledge_main_page/knowledge_main_page.dart'
     show KnowledgeMainPageWidget;
 export '/knowledge_page/knowledge_page.dart' show KnowledgePageWidget;
 export '/questions_page/questions_page.dart' show QuestionsPageWidget;
+export '/ip_config/ip_config_widget.dart' show IpConfigWidget;
